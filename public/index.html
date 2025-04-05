@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 对话助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* 引入 Lucide Icons 字体 */
+      @font-face {
+        font-family: 'LucideIcons';
+        /* 正确地通过 CSS 加载字体文件 */
+        src: url('https://cdn.jsdelivr.net/npm/lucide-static@latest/font/Lucide.ttf') format('truetype');
+      }
+      /* 基本样式 */
+      body {
+        font-family: 'Inter', sans-serif; /* 使用 Inter 字体 */
+        display: flex;
+        height: 100vh;
+        margin: 0;
+        background-color: #f3f4f6; /* Tailwind gray-100 */
+      }
+      .icon {
+        font-family: 'LucideIcons';
+        font-size: 1.25rem; /* 图标大小 */
+      }
+      /* 增加滚动条美化 (可选) */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 10px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #555;
+      }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="flex h-screen bg-gray-100">
+
+    <aside class="w-64 bg-gray-800 text-white flex flex-col p-4 rounded-r-lg shadow-lg">
+        <button id="new-chat-btn" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg mb-4 transition duration-200 ease-in-out flex items-center justify-center space-x-2">
+            <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/plus-circle.svg" alt="New Chat" class="w-5 h-5"/>
+            <span>新建对话</span>
+        </button>
+
+        <div id="history-list" class="flex-grow overflow-y-auto mb-4 pr-2">
+            <p class="text-sm text-gray-400">暂无历史对话</p>
+        </div>
+
+        <div class="mt-auto">
+            <label for="login-code" class="block text-sm font-medium text-gray-300 mb-1">登录码</label>
+            <input type="password" id="login-code" name="login-code" placeholder="输入 10 位数登录码" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+            <button id="login-btn" class="mt-2 w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-200 ease-in-out">
+                登录
+            </button>
+            <p id="login-status" class="text-xs text-red-400 mt-1 h-4"></p> </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col bg-white rounded-l-lg shadow-inner">
+        <div id="chat-window" class="flex-1 overflow-y-auto p-6 space-y-4">
+            <div class="flex justify-center text-gray-500">
+                <span>开始对话吧！</span>
+            </div>
+        </div>
+
+        <div class="p-4 border-t border-gray-200 bg-gray-50">
+            <div class="flex items-center space-x-3">
+                <textarea id="message-input" placeholder="输入你的消息..." rows="1" class="flex-1 p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"></textarea>
+                <button id="send-button" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-5 rounded-lg transition duration-200 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                     <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/send-horizontal.svg" alt="Send" class="w-5 h-5"/>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
+```
+
+请用这份代码替换你本地 `public/index.html` 的全部内容，然后再次尝试在浏览器中打开它，看看错误是否消失。
+
+如果错误仍然存在，那可能需要检查一下你的浏览器扩展或者开发环境是否有特殊设置可能干扰了页面加载。但首先，请确保文件内容是上面这份干净的
