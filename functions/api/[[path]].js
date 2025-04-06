@@ -10,13 +10,21 @@
  * - KV_NAMESPACE: Binding to the Cloudflare KV namespace (for auth codes & usage).
  */
 
-// --- onRequest function (V5 version with robustness check) ---
+// --- onRequest function (V8 version with robustness check) ---
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
 
+  // --- NEW LOGS ---
+  // Log the received path and method for ALL /api/ requests to help debug routing
+  if (url.pathname.startsWith('/api/')) {
+    console.log(`[onRequest V8] Received request: Method=${request.method}, Pathname=${url.pathname}`);
+  }
+  // --- END NEW LOGS ---
+
   // Only respond to requests starting with /api/
   if (!url.pathname.startsWith('/api/')) {
+    // This check might be redundant now but kept for clarity
     return new Response('Not Found', { status: 404 });
   }
 
@@ -30,14 +38,15 @@ export async function onRequest(context) {
   try {
     // --- Request Routing ---
     if (url.pathname === '/api/login' && request.method === 'POST') {
+      console.log("[onRequest V8] Routing to handleLoginRequest...");
       response = await handleLoginRequest(request, env);
     } else if (url.pathname === '/api/chat' && request.method === 'POST') {
-      console.log("[onRequest] Calling handleChatRequest..."); // Log before call
+      console.log("[onRequest V8] Routing to handleChatRequest...");
       response = await handleChatRequest(request, env);
-      // Log the type and status of the returned value from the handler
-      console.log("[onRequest] handleChatRequest returned:", response instanceof Response ? `Response (status: ${response.status})` : response);
+      console.log("[onRequest V8] handleChatRequest returned:", response instanceof Response ? `Response (status: ${response.status})` : response);
     } else {
-      // Route not found
+      // Route not found or method not allowed for existing routes
+      console.log(`[onRequest V8] No matching route found for ${request.method} ${url.pathname}. Returning 404.`);
       response = new Response(JSON.stringify({ error: 'API route not found' }), {
             status: 404,
             headers: { 'Content-Type': 'application/json' },
@@ -46,7 +55,7 @@ export async function onRequest(context) {
 
     // Ensure we always have a Response object after the handler call
     if (!(response instanceof Response)) {
-        console.error("[onRequest] Handler did not return a valid Response object. Assigning 500."); // Log specific error location
+        console.error("[onRequest V8] Handler did not return a valid Response object. Assigning 500.");
         response = new Response(JSON.stringify({ error: 'Internal Server Error: Invalid handler response' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -54,8 +63,8 @@ export async function onRequest(context) {
     }
 
   } catch (error) {
-    // Catch unexpected errors during request routing or handler execution itself
-    console.error('[onRequest] Error during request handling or handler execution:', error);
+    // Catch unexpected errors
+    console.error('[onRequest V8] Error during request handling or handler execution:', error);
     response = new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -63,24 +72,15 @@ export async function onRequest(context) {
   }
 
   // --- Add CORS Headers to the final response ---
-  // Define standard CORS headers
-  const corsHeaders = {
-      'Access-Control-Allow-Origin': '*', // Allow any origin for simplicity
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', // Allowed methods
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization', // Allowed headers
-  };
-
-  // Create mutable headers from the response (ensuring response is valid)
+  const corsHeaders = { /* ... */ };
   const responseHeaders = new Headers(response.headers);
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-      responseHeaders.set(key, value);
-  });
+  Object.entries(corsHeaders).forEach(([key, value]) => { responseHeaders.set(key, value); });
 
-  // Return the final response with original body/status but potentially modified headers
+  // Return the final response
   return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
-      headers: responseHeaders // Use the modified headers
+      headers: responseHeaders
   });
 }
 
