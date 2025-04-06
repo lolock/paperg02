@@ -182,6 +182,32 @@ async function handleChatRequest(request, env) {
         console.log("[handleChatRequest V10] Returning 400 Bad Request (Missing fields).");
         return new Response(JSON.stringify({ error: 'Message and login code are required.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
+    
+    // 清理用户消息中的HTML标签和无关内容
+    let cleanedUserMessage = userMessage;
+    try {
+        // 移除HTML标签
+        cleanedUserMessage = userMessage.replace(/<[^>]*>/g, '');
+        
+        // 移除多余的空行
+        cleanedUserMessage = cleanedUserMessage.replace(/\n{3,}/g, '\n\n');
+        
+        // 移除"name="description"content="..."等模式
+        cleanedUserMessage = cleanedUserMessage.replace(/name=["'].*?["']content=["'].*?["']/g, '');
+        
+        console.log(`[handleChatRequest V10] Cleaned user message. Original length: ${userMessage.length}, New length: ${cleanedUserMessage.length}`);
+        
+        // 如果清理后消息太短，使用原始消息
+        if (cleanedUserMessage.trim().length < 3 && userMessage.length > cleanedUserMessage.length) {
+            console.log("[handleChatRequest V10] Cleaned message too short, reverting to original");
+            cleanedUserMessage = userMessage;
+        }
+    } catch (cleanError) {
+        console.error('[handleChatRequest V10] Error while cleaning user message:', cleanError);
+        // 出错时使用原始消息
+        cleanedUserMessage = userMessage;
+    }
+    
     console.log("[handleChatRequest V10] Input validation passed.");
 
     // --- Re-validate Login Code using KV ---
@@ -226,7 +252,10 @@ async function handleChatRequest(request, env) {
     console.log(`[handleChatRequest V10] Constructed Full API URL: ${fullApiUrl}`);
 
     // --- Prepare Request & Call LLM API ---
-    const messages = [ { role: "system", content: systemPrompt }, { role: "user", content: userMessage } ];
+    const messages = [ 
+        { role: "system", content: systemPrompt }, 
+        { role: "user", content: cleanedUserMessage } // 使用清理后的消息
+    ];
     const llmRequestPayload = { model: modelName, messages: messages };
     console.log(`[handleChatRequest V10] Calling LLM API at ${fullApiUrl}...`);
     const llmResponse = await fetch(fullApiUrl, {
