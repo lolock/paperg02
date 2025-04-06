@@ -1,12 +1,17 @@
 # wrangler.toml
-name = "paperg" # 给你的项目起个名字
-pages_build_output_dir = "public" # 指定静态文件目录
 
-# KV Namespace binding for local development
-# Make sure the variable name 'KV_NAMESPACE' matches the one used in the worker code (env.KV_NAMESPACE)
-# And the id matches the preview_id of your KV namespace in Cloudflare dashboard
-# (You might need to create a separate preview namespace or use the production one carefully)
+name = "paperg"
+pages_build_output_dir = "public"
+compatibility_date = "2025-04-06" # 保持或更新兼容性日期
+
+# [[kv_namespaces]] ... (保持你的 KV 绑定配置)
 [[kv_namespaces]]
 binding = "KV_NAMESPACE"
-id = "4dcd1b2c5cf94fbeb5fe79f53fdf6fc4" # <--- 在 Cloudflare Dashboard > Workers & Pages > KV 中找到并替换 ID
-# preview_id = "YOUR_KV_NAMESPACE_PREVIEW_ID" # 使用 preview_id 通常更适合本地开发
+id = "4dcd1b2c5cf94fbeb5fe79f53fdf6fc4" # 或者 preview_id
+
+# --- 生产环境变量 ---
+# 这些变量会在部署到 Cloudflare Pages 时生效
+[vars]
+API_ENDPOINT = "https://api.tu-zi.com/v1" # 替换为你的生产 API Endpoint
+LLM_MODEL = "grok-3"                     # 替换为你的生产模型名称
+SYSTEM_PROMPT = "You are a helpful assistant." # 你的生产系统提示
