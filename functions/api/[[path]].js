@@ -229,7 +229,7 @@ async function handleChatRequest(request, env) {
     // --- Get Configuration ---
     console.log("[handleChatRequest V10] Getting configuration from env...");
     const apiKey = env.OPENAI_API_KEY;
-    const apiBaseUrl = env.API_ENDPOINT || "https://api.openai.com/v1";
+    const apiBaseUrl = env.API_ENDPOINT || "https://api.openai.com";  // Remove /v1 from default
     const systemPrompt = env.SYSTEM_PROMPT || "You are a helpful assistant.";
     const modelName = env.LLM_MODEL || "gpt-3.5-turbo";
     console.log(`[handleChatRequest V10] Using Base URL: ${apiBaseUrl}, Model: ${modelName}`);
@@ -243,15 +243,19 @@ async function handleChatRequest(request, env) {
     // --- Construct Full URL ---
     let fullApiUrl;
     try {
-        // Check if apiBaseUrl already ends with /v1
-        if (apiBaseUrl.endsWith('/v1')) {
-            fullApiUrl = new URL("/chat/completions", apiBaseUrl).toString();
-        } else if (apiBaseUrl.endsWith('/')) {
-            // If it ends with a slash but not /v1
-            fullApiUrl = new URL("v1/chat/completions", apiBaseUrl).toString();
+        console.log(`[handleChatRequest V10] Raw API Base URL: "${apiBaseUrl}"`);
+        
+        // Standardize the base URL format
+        let standardizedBaseUrl = apiBaseUrl;
+        if (standardizedBaseUrl.endsWith('/')) {
+            standardizedBaseUrl = standardizedBaseUrl.slice(0, -1);
+        }
+        
+        // Construct the full URL with proper path segments
+        if (standardizedBaseUrl.endsWith('/v1')) {
+            fullApiUrl = `${standardizedBaseUrl}/chat/completions`;
         } else {
-            // If it doesn't end with a slash
-            fullApiUrl = new URL("/v1/chat/completions", apiBaseUrl).toString();
+            fullApiUrl = `${standardizedBaseUrl}/v1/chat/completions`;
         }
         
         console.log(`[handleChatRequest V10] Constructed Full API URL: ${fullApiUrl}`);
