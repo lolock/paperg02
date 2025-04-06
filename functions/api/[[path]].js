@@ -11,81 +11,124 @@
  */
 
 // --- onRequest function (V8 version with routing logs) ---
-export async function onRequest(context) {
-  const { request, env } = context;
-  const url = new URL(request.url);
+export async function onRequest(context) { /* ... same as V8/V9 ... */ }
 
-  // Log received path and method for debugging routing
-  if (url.pathname.startsWith('/api/')) {
-    console.log(`[onRequest V8] Received request: Method=${request.method}, Pathname=${url.pathname}`);
-  }
+// --- handleOptions function (Keep the previous version) ---
+function handleOptions() { /* ... same as before ... */ }
 
-  // Only respond to requests starting with /api/
-  if (!url.pathname.startsWith('/api/')) {
-    return new Response('Not Found', { status: 404 });
-  }
+// --- handleLoginRequest function (Keep the previous version) ---
+async function handleLoginRequest(request, env) { /* ... same as before ... */ }
 
-  // Handle CORS preflight requests first
-  if (request.method === 'OPTIONS') {
-    return handleOptions();
-  }
 
-  let response; // Variable to hold the eventual response object
-
+// --- UPDATED handleChatRequest function (V10 - Log raw response on JSON error) ---
+/**
+ * Handles the /api/chat POST request. Includes logging raw response text on JSON parse failure.
+ * @param {Request} request
+ * @param {object} env - Environment object
+ * @returns {Promise<Response>}
+ */
+async function handleChatRequest(request, env) {
+  console.log("[handleChatRequest V10] Function started.");
   try {
-    // --- Request Routing ---
-    if (url.pathname === '/api/login' && request.method === 'POST') {
-      console.log("[onRequest V8] Routing to handleLoginRequest...");
-      response = await handleLoginRequest(request, env);
-    } else if (url.pathname === '/api/chat' && request.method === 'POST') {
-      console.log("[onRequest V8] Routing to handleChatRequest...");
-      response = await handleChatRequest(request, env);
-      // Log the type and status of the returned value from the handler
-      console.log("[onRequest V8] handleChatRequest returned:", response instanceof Response ? `Response (status: ${response.status})` : response);
-    } else {
-      // Route not found or method not allowed
-      console.log(`[onRequest V8] No matching route found for ${request.method} ${url.pathname}. Returning 404.`);
-      response = new Response(JSON.stringify({ error: 'API route not found' }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json' },
-        });
+    // --- Input Validation ---
+    console.log("[handleChatRequest V10] Validating input...");
+    // ... (Input validation code remains the same) ...
+    if (!request.headers.get('content-type')?.includes('application/json')) { /* ... return 400 ... */ }
+    let body;
+    try { body = await request.json(); } catch (jsonError) { /* ... return 400 ... */ }
+    const userMessage = body.message;
+    const loginCode = body.code;
+    if (!userMessage || !loginCode) { /* ... return 400 ... */ }
+    console.log("[handleChatRequest V10] Input validation passed.");
+
+    // --- Re-validate Login Code using KV ---
+    // ... (KV validation code remains the same) ...
+    console.log(`[handleChatRequest V10] Checking KV for chat request with code: ${loginCode}`);
+    if (!env.KV_NAMESPACE) { /* ... return 500 ... */ }
+    const kvValue = await env.KV_NAMESPACE.get(loginCode);
+    console.log(`[handleChatRequest V10] KV lookup for ${loginCode} returned: ${kvValue === null ? 'null (Not Found)' : 'Found'}`);
+    if (kvValue === null) { /* ... return 401 ... */ }
+    console.log("[handleChatRequest V10] KV validation passed.");
+
+    // --- Get Configuration ---
+    // ... (Configuration loading code remains the same) ...
+    console.log("[handleChatRequest V10] Getting configuration from env...");
+    const apiKey = env.OPENAI_API_KEY;
+    const apiBaseUrl = env.API_ENDPOINT || "https://api.openai.com/v1";
+    const systemPrompt = env.SYSTEM_PROMPT || "You are a helpful assistant.";
+    const modelName = env.LLM_MODEL || "gpt-3.5-turbo";
+    console.log(`[handleChatRequest V10] Using Base URL: ${apiBaseUrl}, Model: ${modelName}`);
+    if (!apiKey) { /* ... return 500 ... */ }
+    console.log("[handleChatRequest V10] Configuration loaded (API Key found).");
+
+    // --- Construct Full URL ---
+    let fullApiUrl;
+    try { fullApiUrl = new URL("/chat/completions", apiBaseUrl).toString(); } catch (urlError) { /* ... return 500 ... */ }
+    console.log(`[handleChatRequest V10] Constructed Full API URL: ${fullApiUrl}`);
+
+    // --- Prepare Request & Call LLM API ---
+    const messages = [ { role: "system", content: systemPrompt }, { role: "user", content: userMessage } ];
+    const llmRequestPayload = { model: modelName, messages: messages };
+    console.log(`[handleChatRequest V10] Calling LLM API at ${fullApiUrl}...`);
+    const llmResponse = await fetch(fullApiUrl, { /* ... options ... */ });
+    console.log(`[handleChatRequest V10] fetch completed. LLM API responded with status: ${llmResponse.status}, ok: ${llmResponse.ok}`);
+
+    // --- Process LLM Response ---
+    if (!llmResponse.ok) { // Handle non-2xx responses
+        console.log("[handleChatRequest V10] Processing !llmResponse.ok block...");
+        let errorText = `LLM API returned status ${llmResponse.status}`;
+        try {
+             const errorBody = await llmResponse.text(); // Read body as text
+             console.error(`[handleChatRequest V10] LLM API request failed body: ${errorBody}`);
+             errorText = errorBody || errorText;
+        } catch (e) { console.error("[handleChatRequest V10] Failed to read LLM error response body:", e); }
+        console.log(`[handleChatRequest V10] Returning ${llmResponse.status} (LLM API Error).`);
+        return new Response(JSON.stringify({ error: 'Failed to get response from AI service.', details: errorText }), { status: llmResponse.status, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Ensure we always have a Response object after the handler call
-    if (!(response instanceof Response)) {
-        console.error("[onRequest V8] Handler did not return a valid Response object. Assigning 500.");
-        response = new Response(JSON.stringify({ error: 'Internal Server Error: Invalid handler response' }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' },
-        });
+    // --- Process OK response (2xx) ---
+    console.log("[handleChatRequest V10] Processing OK response block...");
+    let llmResult;
+    // *** NEW: Clone response before attempting JSON parse ***
+    const responseClone = llmResponse.clone(); // Create a clone to allow reading body multiple times if needed
+    try {
+        console.log("[handleChatRequest V10] Parsing LLM JSON response...");
+        llmResult = await llmResponse.json(); // Try parsing original response as JSON
+        console.log("[handleChatRequest V10] LLM JSON response parsed successfully.");
+    } catch (jsonError) {
+        console.error('[handleChatRequest V10] Failed to parse LLM JSON response:', jsonError);
+        // *** NEW: Log raw text from the clone if JSON fails ***
+        try {
+            const rawText = await responseClone.text(); // Read the body as text from the clone
+            console.error('[handleChatRequest V10] Raw response text that failed JSON parsing:', rawText);
+        } catch (textError) {
+            console.error('[handleChatRequest V10] Failed to read raw response text after JSON parse failure:', textError);
+        }
+        // --- End new logging ---
+        console.log("[handleChatRequest V10] Returning 500 Internal Server Error (LLM JSON Parse Error).");
+        return new Response(JSON.stringify({ error: 'Failed to parse AI response.', details: jsonError.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
+
+    // --- Extract reply (only if JSON parsing succeeded) ---
+    const aiReply = llmResult.choices?.[0]?.message?.content?.trim();
+    if (!aiReply) {
+        console.error('[handleChatRequest V10] Could not extract AI reply from parsed LLM response:', JSON.stringify(llmResult));
+        console.log("[handleChatRequest V10] Returning 500 Internal Server Error (Parse Error - No Reply Content).");
+        return new Response(JSON.stringify({ error: 'Failed to parse AI response (content missing).' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+    console.log(`[handleChatRequest V10] Successfully extracted AI reply.`);
+
+    // --- TODO: Token Tracking ---
+
+    // --- Return AI Reply ---
+    console.log("[handleChatRequest V10] Returning 200 OK with AI reply.");
+    return new Response(JSON.stringify({ reply: aiReply }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
   } catch (error) {
-    // Catch unexpected errors
-    console.error('[onRequest V8] Error during request handling or handler execution:', error);
-    response = new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    console.error('[handleChatRequest V10] Unexpected error caught in try-catch block:', error);
+    console.log("[handleChatRequest V10] Returning 500 Internal Server Error (Caught Exception).");
+    return new Response(JSON.stringify({ error: 'Failed to process chat request.', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
-
-  // --- Add CORS Headers to the final response ---
-  const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  };
-  const responseHeaders = new Headers(response.headers);
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-      responseHeaders.set(key, value);
-  });
-
-  // Return the final response
-  return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders
-  });
 }
 
 // --- handleOptions function (Unchanged) ---
