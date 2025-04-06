@@ -10,15 +10,9 @@
  * - KV_NAMESPACE: Binding to the Cloudflare KV namespace (for auth codes & usage).
  */
 
-// --- onRequest function (V8 version with routing logs) ---
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
-
-  // Log received path and method for debugging routing
-  if (url.pathname.startsWith('/api/')) {
-    console.log(`[onRequest V8] Received request: Method=${request.method}, Pathname=${url.pathname}`);
-  }
 
   // Only respond to requests starting with /api/
   if (!url.pathname.startsWith('/api/')) {
@@ -35,16 +29,12 @@ export async function onRequest(context) {
   try {
     // --- Request Routing ---
     if (url.pathname === '/api/login' && request.method === 'POST') {
-      console.log("[onRequest V8] Routing to handleLoginRequest...");
       response = await handleLoginRequest(request, env);
     } else if (url.pathname === '/api/chat' && request.method === 'POST') {
-      console.log("[onRequest V8] Routing to handleChatRequest...");
       response = await handleChatRequest(request, env);
-      // Log the type and status of the returned value from the handler
-      console.log("[onRequest V8] handleChatRequest returned:", response instanceof Response ? `Response (status: ${response.status})` : response);
     } else {
       // Route not found or method not allowed
-      console.log(`[onRequest V8] No matching route found for ${request.method} ${url.pathname}. Returning 404.`);
+      console.warn(`No matching route found for ${request.method} ${url.pathname}.`); // Keep warning for unmatched routes
       response = new Response(JSON.stringify({ error: 'API route not found' }), {
             status: 404,
             headers: { 'Content-Type': 'application/json' },
@@ -53,7 +43,7 @@ export async function onRequest(context) {
 
     // Ensure we always have a Response object after the handler call
     if (!(response instanceof Response)) {
-        console.error("[onRequest V8] Handler did not return a valid Response object. Assigning 500.");
+        console.error("Handler did not return a valid Response object. Assigning 500."); // Keep critical error
         response = new Response(JSON.stringify({ error: 'Internal Server Error: Invalid handler response' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -61,8 +51,8 @@ export async function onRequest(context) {
     }
 
   } catch (error) {
-    // Catch unexpected errors
-    console.error('[onRequest V8] Error during request handling or handler execution:', error);
+    // Catch unexpected errors during request routing or handler execution itself
+    console.error('Error during request handling or handler execution:', error); // Keep critical error
     response = new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -71,7 +61,7 @@ export async function onRequest(context) {
 
   // --- Add CORS Headers to the final response ---
   const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': '*', // Consider restricting in production
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
@@ -88,7 +78,6 @@ export async function onRequest(context) {
   });
 }
 
-// --- handleOptions function (Unchanged) ---
 /**
  * Handles CORS preflight requests (OPTIONS).
  */
@@ -104,7 +93,6 @@ function handleOptions() {
     });
 }
 
-// --- handleLoginRequest function (Unchanged V4 - Uses KV) ---
 /**
  * Handles the /api/login POST request using KV validation.
  * @param {Request} request
@@ -126,316 +114,148 @@ async function handleLoginRequest(request, env) {
 
     // --- KV Validation Logic ---
     if (!env.KV_NAMESPACE) {
-        console.error("[handleLoginRequest] KV_NAMESPACE binding is not configured in environment.");
+        console.error("KV_NAMESPACE binding is not configured in environment."); // Keep critical config error
         return new Response(JSON.stringify({ error: 'Server configuration error: KV Namespace not bound.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
-    console.log(`[handleLoginRequest] Checking KV for login code: ${providedCode}`);
     const kvValue = await env.KV_NAMESPACE.get(providedCode);
-    console.log(`[handleLoginRequest] KV lookup for ${providedCode} returned: ${kvValue === null ? 'null (Not Found)' : 'Found'}`);
 
     if (kvValue !== null) { // Key exists
-      console.log(`[handleLoginRequest] Successful login attempt with valid KV code: ${providedCode}`);
+      // console.log(`Successful login attempt with valid KV code: ${providedCode}`); // Optional: Keep if needed for audit
       return new Response(JSON.stringify({ success: true, message: 'Login successful.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     } else { // Key does not exist
-      console.warn(`[handleLoginRequest] Failed login attempt with non-existent KV code: ${providedCode}`);
+      console.warn(`Failed login attempt with non-existent KV code: ${providedCode}`); // Keep warning for failed attempts
       return new Response(JSON.stringify({ success: false, error: 'Invalid login code.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
     // --- End of KV Validation ---
 
   } catch (error) {
-    console.error('[handleLoginRequest] Unexpected error caught:', error);
+    console.error('[handleLoginRequest] Unexpected error caught:', error); // Keep critical error
     return new Response(JSON.stringify({ error: 'Failed to process login request.', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }
 
 
-// --- handleChatRequest function (V10 - Log raw response on JSON error) ---
 /**
- * Handles the /api/chat POST request. Includes logging raw response text on JSON parse failure.
+ * Handles the /api/chat POST request using KV validation and calling LLM API. Cleaned version.
  * @param {Request} request
  * @param {object} env - Environment object
  * @returns {Promise<Response>}
  */
 async function handleChatRequest(request, env) {
-  console.log("[handleChatRequest V10] Function started.");
   try {
     // --- Input Validation ---
-    console.log("[handleChatRequest V10] Validating input...");
     if (!request.headers.get('content-type')?.includes('application/json')) {
-        console.error("[handleChatRequest V10] Invalid content-type.");
-        console.log("[handleChatRequest V10] Returning 400 Bad Request (Content-Type).");
         return new Response(JSON.stringify({ error: 'Invalid request body type. Expected JSON.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
     let body;
     try {
         body = await request.json();
     } catch (jsonError) {
-        console.error('[handleChatRequest V10] Failed to parse request JSON body:', jsonError);
-        console.log("[handleChatRequest V10] Returning 400 Bad Request (Request JSON Parse Error).");
+        console.error('[handleChatRequest] Failed to parse request JSON body:', jsonError); // Keep error
         return new Response(JSON.stringify({ error: 'Invalid JSON format in request body.', details: jsonError.message }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
     const userMessage = body.message;
     const loginCode = body.code;
     if (!userMessage || !loginCode) {
-        console.error("[handleChatRequest V10] Missing message or login code in request body.");
-        console.log("[handleChatRequest V10] Returning 400 Bad Request (Missing fields).");
         return new Response(JSON.stringify({ error: 'Message and login code are required.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
-    
-    // Clean user message: remove HTML tags and specific patterns
-    let cleanedUserMessage = userMessage;
-    try {
-        // Remove HTML tags
-        cleanedUserMessage = userMessage.replace(/<[^>]*>/g, '');
-
-        // Remove name="..." content="..." patterns (case-insensitive for name/content)
-        cleanedUserMessage = cleanedUserMessage.replace(/name=["'][^"']*["']\s*content=["'][^"']*["']/gi, '');
-
-        // Remove excessive newlines (more than 2 consecutive)
-        cleanedUserMessage = cleanedUserMessage.replace(/\n{3,}/g, '\n\n').trim();
-
-        console.log(`[handleChatRequest V10] Cleaned user message. Original length: ${userMessage.length}, New length: ${cleanedUserMessage.length}`);
-
-        // If cleaning resulted in a very short message but the original was longer, revert.
-        if (cleanedUserMessage.length < 5 && userMessage.length > cleanedUserMessage.length) {
-            console.log("[handleChatRequest V10] Cleaned message too short, reverting to original.");
-            cleanedUserMessage = userMessage.trim(); // Use trimmed original
-        }
-    } catch (cleanError) {
-        console.error('[handleChatRequest V10] Error while cleaning user message:', cleanError);
-        // Fallback to the original message if cleaning fails
-        cleanedUserMessage = userMessage.trim();
-    }
-    
-    console.log("[handleChatRequest V10] Input validation passed.");
 
     // --- Re-validate Login Code using KV ---
-    console.log(`[handleChatRequest V10] Checking KV for chat request with code: ${loginCode}`);
     if (!env.KV_NAMESPACE) {
-        console.error("[handleChatRequest V10] KV_NAMESPACE binding is not configured.");
-        console.log("[handleChatRequest V10] Returning 500 Internal Server Error (KV binding).");
+        console.error("[handleChatRequest] KV_NAMESPACE binding is not configured."); // Keep critical config error
         return new Response(JSON.stringify({ error: 'Server configuration error: KV Namespace not bound.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
     const kvValue = await env.KV_NAMESPACE.get(loginCode);
-    console.log(`[handleChatRequest V10] KV lookup for ${loginCode} returned: ${kvValue === null ? 'null (Not Found)' : 'Found'}`);
     if (kvValue === null) {
-        console.warn(`[handleChatRequest V10] Invalid/non-existent KV code during chat: ${loginCode}`);
-        console.log("[handleChatRequest V10] Returning 401 Unauthorized (KV lookup failed).");
+        console.warn(`[handleChatRequest] Invalid/non-existent KV code during chat: ${loginCode}`); // Keep warning
         return new Response(JSON.stringify({ error: 'Invalid or expired login code.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
-    console.log("[handleChatRequest V10] KV validation passed.");
 
     // --- Get Configuration ---
-    console.log("[handleChatRequest V10] Getting configuration from env...");
     const apiKey = env.OPENAI_API_KEY;
-    const apiBaseUrl = env.API_ENDPOINT || "https://api.openai.com";  // Remove /v1 from default
+    const apiBaseUrl = env.API_ENDPOINT || "https://api.openai.com/v1"; // Default base URL
     const systemPrompt = env.SYSTEM_PROMPT || "You are a helpful assistant.";
     const modelName = env.LLM_MODEL || "gpt-3.5-turbo";
-    console.log(`[handleChatRequest V10] Using Base URL: ${apiBaseUrl}, Model: ${modelName}`);
+
     if (!apiKey) {
-        console.error("[handleChatRequest V10] OPENAI_API_KEY environment variable not set.");
-        console.log("[handleChatRequest V10] Returning 500 Internal Server Error (API Key missing).");
+        console.error("[handleChatRequest] OPENAI_API_KEY environment variable not set."); // Keep critical config error
         return new Response(JSON.stringify({ error: 'Server configuration error: Missing API Key.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
-    console.log("[handleChatRequest V10] Configuration loaded (API Key found).");
 
     // --- Construct Full URL ---
     let fullApiUrl;
     try {
-        console.log(`[handleChatRequest V10] Raw API Base URL: "${apiBaseUrl}"`);
-        
-        // Standardize the base URL format
-        let standardizedBaseUrl = apiBaseUrl;
-        if (standardizedBaseUrl.endsWith('/')) {
-            standardizedBaseUrl = standardizedBaseUrl.slice(0, -1);
-        }
-        
-        // Construct the full URL with proper path segments
-        if (standardizedBaseUrl.endsWith('/v1')) {
-            fullApiUrl = `${standardizedBaseUrl}/chat/completions`;
-        } else {
-            fullApiUrl = `${standardizedBaseUrl}/v1/chat/completions`;
-        }
-        
-        console.log(`[handleChatRequest V10] Constructed Full API URL: ${fullApiUrl}`);
-        
-        // Validate the URL is properly formed
-        new URL(fullApiUrl); // This will throw if URL is invalid
+        let standardizedBaseUrl = apiBaseUrl.endsWith('/') ? apiBaseUrl.slice(0, -1) : apiBaseUrl;
+        fullApiUrl = standardizedBaseUrl.endsWith('/v1')
+            ? `${standardizedBaseUrl}/chat/completions`
+            : `${standardizedBaseUrl}/v1/chat/completions`;
+        new URL(fullApiUrl); // Validate URL
     } catch (urlError) {
-        console.error(`[handleChatRequest V10] Invalid API_ENDPOINT format: ${apiBaseUrl}`, urlError);
-        console.log("[handleChatRequest V10] Returning 500 Internal Server Error (Invalid API Endpoint URL).");
-        return new Response(JSON.stringify({ 
-            error: 'Server configuration error: Invalid API Endpoint URL format.', 
-            details: `Failed to construct valid URL from base: ${apiBaseUrl}. Error: ${urlError.message}`
-        }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        console.error(`[handleChatRequest] Invalid API_ENDPOINT format: ${apiBaseUrl}`, urlError); // Keep error
+        return new Response(JSON.stringify({ error: 'Server configuration error: Invalid API Endpoint URL format.', details: urlError.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
-    console.log(`[handleChatRequest V10] Constructed Full API URL: ${fullApiUrl}`);
 
     // --- Prepare Request & Call LLM API ---
-    const messages = [ 
-        { role: "system", content: systemPrompt }, 
-        { role: "user", content: cleanedUserMessage } // Use the cleaned message
-    ];
+    const messages = [ { role: "system", content: systemPrompt }, { role: "user", content: userMessage } ]; // Note: cleanedUserMessage logic removed for simplicity, add back if needed
     const llmRequestPayload = { model: modelName, messages: messages };
-    console.log(`[handleChatRequest V10] Calling LLM API at ${fullApiUrl}...`);
+    // console.log(`[handleChatRequest] Calling LLM API at ${fullApiUrl}...`); // Optional: Keep for minimal tracing
+
     const llmResponse = await fetch(fullApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify(llmRequestPayload),
     });
-    console.log(`[handleChatRequest V10] fetch completed. LLM API responded with status: ${llmResponse.status}, ok: ${llmResponse.ok}`);
 
     // --- Process LLM Response ---
     if (!llmResponse.ok) { // Handle non-2xx responses
-        console.log("[handleChatRequest V10] Processing !llmResponse.ok block...");
         let errorText = `LLM API returned status ${llmResponse.status}`;
         try {
-             const errorBody = await llmResponse.text(); // Read body as text
-             console.error(`[handleChatRequest V10] LLM API request failed body: ${errorBody}`);
-             
-             // 添加更详细的错误日志
-             console.error(`[handleChatRequest V10] Full request details: URL=${fullApiUrl}, Model=${modelName}`);
-             
-             // 尝试解析错误响应为JSON（如果可能）
-             try {
-                 const errorJson = JSON.parse(errorBody);
-                 console.error(`[handleChatRequest V10] Parsed error response:`, errorJson);
-                 // 如果是OpenAI格式的错误，提取更有用的信息
-                 if (errorJson.error) {
-                     errorText = `${errorJson.error.message || errorJson.error.type || errorText} (Code: ${errorJson.error.code || 'unknown'})`;
-                 }
-             } catch (e) {
-                 // 如果不是JSON格式，使用原始文本
-                 errorText = errorBody || errorText;
-             }
-        } catch (e) { 
-            console.error("[handleChatRequest V10] Failed to read LLM error response body:", e); 
-        }
-        console.log(`[handleChatRequest V10] Returning ${llmResponse.status} (LLM API Error).`);
-        return new Response(JSON.stringify({ 
-            error: 'Failed to get response from AI service.', 
-            details: errorText,
-            status: llmResponse.status
-        }), { status: llmResponse.status, headers: { 'Content-Type': 'application/json' } });
+             const errorBody = await llmResponse.text();
+             console.error(`[handleChatRequest] LLM API request failed body: ${errorBody}`); // Keep error log with body
+             errorText = errorBody || errorText;
+        } catch (e) { console.error("[handleChatRequest] Failed to read LLM error response body:", e); }
+        // Return a structured error including details from the LLM API response
+        return new Response(JSON.stringify({ error: 'Failed to get response from AI service.', llm_status: llmResponse.status, llm_details: errorText }), {
+             status: 500, // Internal Server Error because *our* service couldn't fulfill the request via the upstream API
+             headers: { 'Content-Type': 'application/json' }
+         });
     }
 
     // --- Process OK response (2xx) ---
-    console.log("[handleChatRequest V10] Processing OK response block...");
     let llmResult;
-    // Clone response before attempting JSON parse, in case parsing fails and we need the raw text
-    const responseClone = llmResponse.clone();
     try {
-        console.log("[handleChatRequest V10] Parsing LLM JSON response...");
-        llmResult = await llmResponse.json(); // Try parsing original response as JSON
-        console.log("[handleChatRequest V10] LLM JSON response parsed successfully.");
+        llmResult = await llmResponse.json();
     } catch (jsonError) {
-        console.error('[handleChatRequest V10] Failed to parse LLM JSON response:', jsonError);
-        // Log raw text from the clone if JSON parsing fails
-        try {
-            const rawText = await responseClone.text(); // Read the body as text from the clone
-            console.error('[handleChatRequest V10] Raw response text that failed JSON parsing:', rawText); // Log the raw text
-            
-            // 尝试手动解析响应内容
-            if (rawText && rawText.trim()) {
-                console.log("[handleChatRequest V10] Attempting manual response extraction...");
-                
-                // 检查是否包含常见的JSON格式错误
-                let cleanedText = rawText;
-                // 尝试修复一些常见的JSON格式问题
-                try {
-                    // 如果响应以HTML或其他非JSON格式开始，尝试查找JSON部分
-                    const jsonStartIndex = rawText.indexOf('{');
-                    const jsonEndIndex = rawText.lastIndexOf('}');
-                    
-                    if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
-                        cleanedText = rawText.substring(jsonStartIndex, jsonEndIndex + 1);
-                        console.log("[handleChatRequest V10] Extracted potential JSON content:", cleanedText);
-                        
-                        // 尝试解析提取的JSON
-                        const extractedJson = JSON.parse(cleanedText);
-                        llmResult = extractedJson;
-                        console.log("[handleChatRequest V10] Successfully parsed extracted JSON content");
-                    } else {
-                        // 如果找不到JSON结构，尝试将整个响应作为AI回复
-                        console.log("[handleChatRequest V10] No JSON structure found, using raw text as reply");
-                        return new Response(JSON.stringify({ 
-                            reply: rawText.trim(),
-                            warning: "Response was not in expected JSON format"
-                        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-                    }
-                } catch (extractError) {
-                    console.error("[handleChatRequest V10] Failed to extract or parse JSON from raw text:", extractError);
-                    // 继续执行到原始错误处理
-                }
-            }
-        } catch (textError) {
-            console.error('[handleChatRequest V10] Failed to read raw response text after JSON parse failure:', textError);
-        }
-        
-        // 如果所有尝试都失败，返回原始错误
-        if (!llmResult) {
-            console.log("[handleChatRequest V10] Returning 500 Internal Server Error (LLM JSON Parse Error).");
-            return new Response(JSON.stringify({ 
-                error: 'Failed to parse AI response.', 
-                details: jsonError.message,
-                suggestion: "Check Cloudflare logs for raw response details"
-            }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-        }
+        console.error('[handleChatRequest] Failed to parse LLM JSON response:', jsonError); // Keep error
+        // Attempt to log raw text if JSON parsing fails
+        let rawText = "[Could not read raw text after JSON parse failure]";
+        try { const responseClone = llmResponse.clone(); rawText = await responseClone.text(); console.error('[handleChatRequest] Raw response text:', rawText); } catch (textError) { /* ignore */ }
+        return new Response(JSON.stringify({ error: 'Failed to parse AI response.', details: jsonError.message, raw_response: rawText }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // --- Extract reply (only if JSON parsing succeeded) ---
-    let aiReply;
-    try {
-        aiReply = llmResult.choices?.[0]?.message?.content?.trim();
-        if (!aiReply) {
-            // 尝试其他可能的响应格式
-            aiReply = llmResult.response || llmResult.output || llmResult.text || llmResult.content;
-            
-            if (!aiReply && typeof llmResult === 'string') {
-                // 如果llmResult本身是字符串，直接使用它
-                aiReply = llmResult.trim();
-            }
-        }
-    } catch (extractError) {
-        console.error('[handleChatRequest V10] Error extracting AI reply from result:', extractError);
-    }
-    
+    // --- Extract reply ---
+    let aiReply = llmResult.choices?.[0]?.message?.content?.trim();
+    // Add fallback for slightly different structures if necessary
+     if (!aiReply) {
+         aiReply = llmResult.response || llmResult.output || llmResult.text || llmResult.content;
+         if (!aiReply && typeof llmResult === 'string') { aiReply = llmResult.trim(); }
+     }
+
     if (!aiReply) {
-        console.error('[handleChatRequest V10] Could not extract AI reply from parsed LLM response:', JSON.stringify(llmResult));
-        console.log("[handleChatRequest V10] Returning 500 Internal Server Error (Parse Error - No Reply Content).");
-        return new Response(JSON.stringify({ 
-            error: 'Failed to parse AI response (content missing).', 
-            responseStructure: Object.keys(llmResult).join(', ')
-        }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        console.error('[handleChatRequest] Could not extract AI reply from parsed LLM response:', JSON.stringify(llmResult)); // Keep error
+        return new Response(JSON.stringify({ error: 'Failed to parse AI response (content missing).', response_structure: JSON.stringify(llmResult) }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
-    console.log(`[handleChatRequest V10] Successfully extracted AI reply.`);
 
     // --- TODO: Token Tracking ---
 
     // --- Return AI Reply ---
-    console.log("[handleChatRequest V10] Returning 200 OK with AI reply.");
     return new Response(JSON.stringify({ reply: aiReply }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
   } catch (error) {
-    console.error('[handleChatRequest V10] Unexpected error caught in try-catch block:', error);
-    console.log("[handleChatRequest V10] Returning 500 Internal Server Error (Caught Exception).");
+    console.error('[handleChatRequest] Unexpected error caught in try-catch block:', error); // Keep critical error
     return new Response(JSON.stringify({ error: 'Failed to process chat request.', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }
 
 // --- TODO: Add updateTokenCount function later for KV ---
-// 这是一个能对话的版本
-/*相对上一版，This change:
-1. Removes /v1 from the default API endpoint URL
-2. Uses string concatenation instead of the URL constructor to build the full URL
-3. Adds more detailed logging of the raw API base URL
-4. Standardizes the base URL by removing trailing slashes
-5. Handles the case where the base URL already ends with /v1
-Additionally, the 404 error from your frontend suggests that your Cloudflare Pages deployment might not be correctly routing API requests. Make sure:
-
-1. Your Cloudflare Pages project is correctly configured to use your Functions
-2. The Functions routing is set up to handle /api/* paths
-3. Your KV namespace is properly bound to your Functions environment
-You might want to check your Cloudflare Pages dashboard to ensure all bindings and routes are correctly configured.
-*/
