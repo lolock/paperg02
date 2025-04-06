@@ -10,8 +10,7 @@
  * - KV_NAMESPACE: Binding to the Cloudflare KV namespace (for auth codes & usage).
  */
 
-// NO Hardcoded valid login code here! Validation uses KV.
-
+// --- onRequest function (V5 version with robustness check) ---
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
@@ -33,7 +32,10 @@ export async function onRequest(context) {
     if (url.pathname === '/api/login' && request.method === 'POST') {
       response = await handleLoginRequest(request, env);
     } else if (url.pathname === '/api/chat' && request.method === 'POST') {
+      console.log("[onRequest] Calling handleChatRequest..."); // Log before call
       response = await handleChatRequest(request, env);
+      // Log the type and status of the returned value from the handler
+      console.log("[onRequest] handleChatRequest returned:", response instanceof Response ? `Response (status: ${response.status})` : response);
     } else {
       // Route not found
       response = new Response(JSON.stringify({ error: 'API route not found' }), {
@@ -42,9 +44,9 @@ export async function onRequest(context) {
         });
     }
 
-    // Ensure we always have a Response object here, even if handlers failed unexpectedly
+    // Ensure we always have a Response object after the handler call
     if (!(response instanceof Response)) {
-        console.error("Handler did not return a valid Response object. Returning 500.");
+        console.error("[onRequest] Handler did not return a valid Response object. Assigning 500."); // Log specific error location
         response = new Response(JSON.stringify({ error: 'Internal Server Error: Invalid handler response' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -52,8 +54,8 @@ export async function onRequest(context) {
     }
 
   } catch (error) {
-    // Catch unexpected errors during request routing or handler execution
-    console.error('Error during request handling or handler execution:', error);
+    // Catch unexpected errors during request routing or handler execution itself
+    console.error('[onRequest] Error during request handling or handler execution:', error);
     response = new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -63,19 +65,18 @@ export async function onRequest(context) {
   // --- Add CORS Headers to the final response ---
   // Define standard CORS headers
   const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Origin': '*', // Allow any origin for simplicity
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', // Allowed methods
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization', // Allowed headers
   };
 
-  // Create mutable headers from the response
+  // Create mutable headers from the response (ensuring response is valid)
   const responseHeaders = new Headers(response.headers);
   Object.entries(corsHeaders).forEach(([key, value]) => {
       responseHeaders.set(key, value);
   });
 
-  // Return the response with potentially modified headers
-  // Use response.body, response.status etc. to construct the final response
+  // Return the final response with original body/status but potentially modified headers
   return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -83,96 +84,198 @@ export async function onRequest(context) {
   });
 }
 
-// --- handleOptions, handleLoginRequest, handleChatRequest functions remain the same as V4 ---
-// (Make sure the rest of your file still contains the correct V4 versions of these functions)
-
+// --- handleOptions function (Unchanged V4/V5/V6) ---
 /**
  * Handles CORS preflight requests (OPTIONS).
  */
 function handleOptions() {
     return new Response(null, {
-        status: 204,
+        status: 204, // No Content
         headers: {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-            'Access-Control-Max-Age': '86400',
+            'Access-Control-Max-Age': '86400', // Cache preflight response for 1 day
         },
     });
 }
 
-
+// --- handleLoginRequest function (Unchanged V4/V5/V6 - Uses KV) ---
 /**
  * Handles the /api/login POST request using KV validation.
- * (Code is the same as V4)
  * @param {Request} request
  * @param {object} env - Contains KV_NAMESPACE binding
  * @returns {Promise<Response>}
  */
 async function handleLoginRequest(request, env) {
   try {
-    if (!request.headers.get('content-type')?.includes('application/json')) { /* ... */ }
+    // Validate request
+    if (!request.headers.get('content-type')?.includes('application/json')) {
+       return new Response(JSON.stringify({ error: 'Invalid request body type. Expected JSON.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
     const body = await request.json();
     const providedCode = body.code;
-    if (!providedCode) { /* ... */ }
+    if (!providedCode) {
+       return new Response(JSON.stringify({ error: 'Login code is required.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
 
-    if (!env.KV_NAMESPACE) { /* ... return 500 ... */ }
+    // --- KV Validation Logic ---
+    if (!env.KV_NAMESPACE) {
+        console.error("[handleLoginRequest] KV_NAMESPACE binding is not configured in environment.");
+        return new Response(JSON.stringify({ error: 'Server configuration error: KV Namespace not bound.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
 
-    console.log(`Checking KV for login code: ${providedCode}`);
+    console.log(`[handleLoginRequest] Checking KV for login code: ${providedCode}`);
     const kvValue = await env.KV_NAMESPACE.get(providedCode);
-    console.log(`KV lookup for ${providedCode} returned: ${kvValue === null ? 'null (Not Found)' : 'Found'}`);
+    console.log(`[handleLoginRequest] KV lookup for ${providedCode} returned: ${kvValue === null ? 'null (Not Found)' : 'Found'}`);
 
-    if (kvValue !== null) {
-      console.log(`Successful login attempt with valid KV code: ${providedCode}`);
+    if (kvValue !== null) { // Key exists
+      console.log(`[handleLoginRequest] Successful login attempt with valid KV code: ${providedCode}`);
       return new Response(JSON.stringify({ success: true, message: 'Login successful.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    } else {
-      console.warn(`Failed login attempt with non-existent KV code: ${providedCode}`);
+    } else { // Key does not exist
+      console.warn(`[handleLoginRequest] Failed login attempt with non-existent KV code: ${providedCode}`);
       return new Response(JSON.stringify({ success: false, error: 'Invalid login code.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
-  } catch (error) { /* ... Error handling ... */ }
+    // --- End of KV Validation ---
+
+  } catch (error) {
+    console.error('[handleLoginRequest] Unexpected error caught:', error);
+     if (error instanceof SyntaxError) {
+        return new Response(JSON.stringify({ error: 'Invalid JSON format in request body.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ error: 'Failed to process login request.', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }
 
+
+// --- handleChatRequest function (V7 version with MOST detailed logging) ---
 /**
  * Handles the /api/chat POST request using KV validation and calling LLM API.
- * (Code is the same as V4)
+ * Includes even more detailed logging for debugging fetch/catch issues.
  * @param {Request} request
  * @param {object} env - Environment object
- * @returns {Promise<Response>}
+ * @returns {Promise<Response|undefined>} - Should return Response
  */
 async function handleChatRequest(request, env) {
+  console.log("[handleChatRequest V7] Function started."); // Log start (V7)
   try {
-    if (!request.headers.get('content-type')?.includes('application/json')) { /* ... */ }
-    const body = await request.json();
+    // --- Input Validation ---
+    console.log("[handleChatRequest V7] Validating input...");
+    if (!request.headers.get('content-type')?.includes('application/json')) {
+      console.error("[handleChatRequest V7] Invalid content-type.");
+      console.log("[handleChatRequest V7] Returning 400 Bad Request (Content-Type)."); // Log before return
+      return new Response(JSON.stringify({ error: 'Invalid request body type. Expected JSON.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    let body;
+    try {
+        body = await request.json();
+    } catch (jsonError) {
+        console.error('[handleChatRequest V7] Failed to parse request JSON body:', jsonError);
+        console.log("[handleChatRequest V7] Returning 400 Bad Request (Request JSON Parse Error).");
+        return new Response(JSON.stringify({ error: 'Invalid JSON format in request body.', details: jsonError.message }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+
     const userMessage = body.message;
     const loginCode = body.code;
-    if (!userMessage || !loginCode) { /* ... */ }
 
-    if (!env.KV_NAMESPACE) { /* ... return 500 ... */ }
-    console.log(`Checking KV for chat request with code: ${loginCode}`);
+    if (!userMessage || !loginCode) {
+      console.error("[handleChatRequest V7] Missing message or login code in request body.");
+      console.log("[handleChatRequest V7] Returning 400 Bad Request (Missing fields)."); // Log before return
+      return new Response(JSON.stringify({ error: 'Message and login code are required.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    console.log("[handleChatRequest V7] Input validation passed.");
+
+    // --- Re-validate Login Code using KV ---
+    console.log(`[handleChatRequest V7] Checking KV for chat request with code: ${loginCode}`);
+    if (!env.KV_NAMESPACE) {
+        console.error("[handleChatRequest V7] KV_NAMESPACE binding is not configured.");
+        console.log("[handleChatRequest V7] Returning 500 Internal Server Error (KV binding)."); // Log before return
+        return new Response(JSON.stringify({ error: 'Server configuration error: KV Namespace not bound.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
     const kvValue = await env.KV_NAMESPACE.get(loginCode);
-    console.log(`KV lookup for ${loginCode} (chat) returned: ${kvValue === null ? 'null (Not Found)' : 'Found'}`);
-    if (kvValue === null) { /* ... return 401 ... */ }
+    console.log(`[handleChatRequest V7] KV lookup for ${loginCode} returned: ${kvValue === null ? 'null (Not Found)' : 'Found'}`);
+    if (kvValue === null) {
+        console.warn(`[handleChatRequest V7] Invalid/non-existent KV code during chat: ${loginCode}`);
+        console.log("[handleChatRequest V7] Returning 401 Unauthorized (KV lookup failed)."); // Log before return
+        return new Response(JSON.stringify({ error: 'Invalid or expired login code.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+    }
+    console.log("[handleChatRequest V7] KV validation passed.");
 
+    // --- Get Configuration ---
+    console.log("[handleChatRequest V7] Getting configuration from env...");
     const apiKey = env.OPENAI_API_KEY;
     const apiEndpoint = env.API_ENDPOINT || "https://api.openai.com/v1/chat/completions";
     const systemPrompt = env.SYSTEM_PROMPT || "You are a helpful assistant.";
     const modelName = env.LLM_MODEL || "gpt-3.5-turbo";
-    if (!apiKey) { /* ... return 500 ... */ }
+    console.log(`[handleChatRequest V7] Using Endpoint: ${apiEndpoint}, Model: ${modelName}`);
 
+    if (!apiKey) {
+        console.error("[handleChatRequest V7] OPENAI_API_KEY environment variable not set.");
+        console.log("[handleChatRequest V7] Returning 500 Internal Server Error (API Key missing)."); // Log before return
+        return new Response(JSON.stringify({ error: 'Server configuration error: Missing API Key.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+    console.log("[handleChatRequest V7] Configuration loaded (API Key found).");
+
+    // --- Prepare Request & Call LLM API ---
     const messages = [ { role: "system", content: systemPrompt }, { role: "user", content: userMessage } ];
     const llmRequestPayload = { model: modelName, messages: messages };
-    console.log(`Calling LLM API at ${apiEndpoint} using model ${modelName} for code ${loginCode}`);
-    const llmResponse = await fetch(apiEndpoint, { /* ... options ... */ });
+    console.log(`[handleChatRequest V7] Calling LLM API at ${apiEndpoint}...`);
+    const llmResponse = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify(llmRequestPayload),
+    });
+    // *** Log right after fetch completes ***
+    console.log(`[handleChatRequest V7] fetch completed. LLM API responded with status: ${llmResponse.status}, ok: ${llmResponse.ok}`);
 
-    if (!llmResponse.ok) { /* ... handle LLM error ... */ }
-    const llmResult = await llmResponse.json();
+    // --- Process LLM Response ---
+    if (!llmResponse.ok) { // Checks if status is 200-299
+        console.log("[handleChatRequest V7] Processing !llmResponse.ok block..."); // Log entry
+        let errorText = `LLM API returned status ${llmResponse.status}`;
+        try {
+             const errorBody = await llmResponse.text();
+             console.error(`[handleChatRequest V7] LLM API request failed body: ${errorBody}`);
+             errorText = errorBody || errorText;
+        } catch (e) { console.error("[handleChatRequest V7] Failed to read LLM error response body:", e); }
+        console.log(`[handleChatRequest V7] Returning ${llmResponse.status} (LLM API Error).`);
+        return new Response(JSON.stringify({ error: 'Failed to get response from AI service.', details: errorText }), { status: llmResponse.status, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // --- Process OK response ---
+    console.log("[handleChatRequest V7] Processing OK response block..."); // Log entry
+    let llmResult;
+    try {
+        console.log("[handleChatRequest V7] Parsing LLM JSON response...");
+        llmResult = await llmResponse.json();
+        console.log("[handleChatRequest V7] LLM JSON response parsed.");
+    } catch (jsonError) {
+        console.error('[handleChatRequest V7] Failed to parse LLM JSON response:', jsonError);
+        console.log("[handleChatRequest V7] Returning 500 Internal Server Error (LLM JSON Parse Error).");
+        return new Response(JSON.stringify({ error: 'Failed to parse AI response.', details: jsonError.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+
     const aiReply = llmResult.choices?.[0]?.message?.content?.trim();
-    if (!aiReply) { /* ... handle parsing error ... */ }
-    console.log(`Received AI reply using ${modelName} for code ${loginCode}: "${aiReply.substring(0, 50)}..."`);
+
+    if (!aiReply) {
+        console.error('[handleChatRequest V7] Could not extract AI reply from LLM response:', JSON.stringify(llmResult));
+        console.log("[handleChatRequest V7] Returning 500 Internal Server Error (Parse Error - No Reply Content).");
+        return new Response(JSON.stringify({ error: 'Failed to parse AI response (content missing).' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+    console.log(`[handleChatRequest V7] Successfully extracted AI reply.`);
 
     // --- TODO: Token Tracking ---
 
+    // --- Return AI Reply ---
+    console.log("[handleChatRequest V7] Returning 200 OK with AI reply.");
     return new Response(JSON.stringify({ reply: aiReply }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
-  } catch (error) { /* ... handle errors ... */ }
+  } catch (error) {
+    // *** Log at the start of the catch block ***
+    console.error('[handleChatRequest V7] Unexpected error caught in try-catch block:', error);
+    console.log("[handleChatRequest V7] Returning 500 Internal Server Error (Caught Exception).");
+    return new Response(JSON.stringify({ error: 'Failed to process chat request.', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }
+
+// --- TODO: Add updateTokenCount function later ---
