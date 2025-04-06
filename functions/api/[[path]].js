@@ -243,7 +243,7 @@ async function handleChatRequest(request, env) {
         try {
              const errorBody = await llmResponse.text(); // Read body as text
              console.error(`[handleChatRequest V10] LLM API request failed body: ${errorBody}`);
-             errorText = errorBody || errorText;
+             errorText = errorBody || errorText; // Use body if available for details
         } catch (e) { console.error("[handleChatRequest V10] Failed to read LLM error response body:", e); }
         console.log(`[handleChatRequest V10] Returning ${llmResponse.status} (LLM API Error).`);
         return new Response(JSON.stringify({ error: 'Failed to get response from AI service.', details: errorText }), { status: llmResponse.status, headers: { 'Content-Type': 'application/json' } });
@@ -263,11 +263,12 @@ async function handleChatRequest(request, env) {
         // Log raw text from the clone if JSON parsing fails
         try {
             const rawText = await responseClone.text(); // Read the body as text from the clone
-            console.error('[handleChatRequest V10] Raw response text that failed JSON parsing:', rawText);
+            console.error('[handleChatRequest V10] Raw response text that failed JSON parsing:', rawText); // Log the raw text
         } catch (textError) {
             console.error('[handleChatRequest V10] Failed to read raw response text after JSON parse failure:', textError);
         }
         console.log("[handleChatRequest V10] Returning 500 Internal Server Error (LLM JSON Parse Error).");
+        // Return the JSON parsing error message
         return new Response(JSON.stringify({ error: 'Failed to parse AI response.', details: jsonError.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
