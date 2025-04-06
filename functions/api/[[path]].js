@@ -425,3 +425,17 @@ async function handleChatRequest(request, env) {
 }
 
 // --- TODO: Add updateTokenCount function later for KV ---
+// 这是一个能对话的版本
+/*相对上一版，This change:
+1. Removes /v1 from the default API endpoint URL
+2. Uses string concatenation instead of the URL constructor to build the full URL
+3. Adds more detailed logging of the raw API base URL
+4. Standardizes the base URL by removing trailing slashes
+5. Handles the case where the base URL already ends with /v1
+Additionally, the 404 error from your frontend suggests that your Cloudflare Pages deployment might not be correctly routing API requests. Make sure:
+
+1. Your Cloudflare Pages project is correctly configured to use your Functions
+2. The Functions routing is set up to handle /api/* paths
+3. Your KV namespace is properly bound to your Functions environment
+You might want to check your Cloudflare Pages dashboard to ensure all bindings and routes are correctly configured.
+*/
