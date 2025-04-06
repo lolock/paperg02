@@ -243,10 +243,31 @@ async function handleChatRequest(request, env) {
         try {
              const errorBody = await llmResponse.text(); // Read body as text
              console.error(`[handleChatRequest V10] LLM API request failed body: ${errorBody}`);
-             errorText = errorBody || errorText; // Use body if available for details
-        } catch (e) { console.error("[handleChatRequest V10] Failed to read LLM error response body:", e); }
+             
+             // 添加更详细的错误日志
+             console.error(`[handleChatRequest V10] Full request details: URL=${fullApiUrl}, Model=${modelName}`);
+             
+             // 尝试解析错误响应为JSON（如果可能）
+             try {
+                 const errorJson = JSON.parse(errorBody);
+                 console.error(`[handleChatRequest V10] Parsed error response:`, errorJson);
+                 // 如果是OpenAI格式的错误，提取更有用的信息
+                 if (errorJson.error) {
+                     errorText = `${errorJson.error.message || errorJson.error.type || errorText} (Code: ${errorJson.error.code || 'unknown'})`;
+                 }
+             } catch (e) {
+                 // 如果不是JSON格式，使用原始文本
+                 errorText = errorBody || errorText;
+             }
+        } catch (e) { 
+            console.error("[handleChatRequest V10] Failed to read LLM error response body:", e); 
+        }
         console.log(`[handleChatRequest V10] Returning ${llmResponse.status} (LLM API Error).`);
-        return new Response(JSON.stringify({ error: 'Failed to get response from AI service.', details: errorText }), { status: llmResponse.status, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ 
+            error: 'Failed to get response from AI service.', 
+            details: errorText,
+            status: llmResponse.status
+        }), { status: llmResponse.status, headers: { 'Content-Type': 'application/json' } });
     }
 
     // --- Process OK response (2xx) ---
