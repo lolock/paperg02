@@ -285,20 +285,79 @@ async function handleChatRequest(request, env) {
         try {
             const rawText = await responseClone.text(); // Read the body as text from the clone
             console.error('[handleChatRequest V10] Raw response text that failed JSON parsing:', rawText); // Log the raw text
+            
+            // 尝试手动解析响应内容
+            if (rawText && rawText.trim()) {
+                console.log("[handleChatRequest V10] Attempting manual response extraction...");
+                
+                // 检查是否包含常见的JSON格式错误
+                let cleanedText = rawText;
+                // 尝试修复一些常见的JSON格式问题
+                try {
+                    // 如果响应以HTML或其他非JSON格式开始，尝试查找JSON部分
+                    const jsonStartIndex = rawText.indexOf('{');
+                    const jsonEndIndex = rawText.lastIndexOf('}');
+                    
+                    if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
+                        cleanedText = rawText.substring(jsonStartIndex, jsonEndIndex + 1);
+                        console.log("[handleChatRequest V10] Extracted potential JSON content:", cleanedText);
+                        
+                        // 尝试解析提取的JSON
+                        const extractedJson = JSON.parse(cleanedText);
+                        llmResult = extractedJson;
+                        console.log("[handleChatRequest V10] Successfully parsed extracted JSON content");
+                    } else {
+                        // 如果找不到JSON结构，尝试将整个响应作为AI回复
+                        console.log("[handleChatRequest V10] No JSON structure found, using raw text as reply");
+                        return new Response(JSON.stringify({ 
+                            reply: rawText.trim(),
+                            warning: "Response was not in expected JSON format"
+                        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+                    }
+                } catch (extractError) {
+                    console.error("[handleChatRequest V10] Failed to extract or parse JSON from raw text:", extractError);
+                    // 继续执行到原始错误处理
+                }
+            }
         } catch (textError) {
             console.error('[handleChatRequest V10] Failed to read raw response text after JSON parse failure:', textError);
         }
-        console.log("[handleChatRequest V10] Returning 500 Internal Server Error (LLM JSON Parse Error).");
-        // Return the JSON parsing error message
-        return new Response(JSON.stringify({ error: 'Failed to parse AI response.', details: jsonError.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        
+        // 如果所有尝试都失败，返回原始错误
+        if (!llmResult) {
+            console.log("[handleChatRequest V10] Returning 500 Internal Server Error (LLM JSON Parse Error).");
+            return new Response(JSON.stringify({ 
+                error: 'Failed to parse AI response.', 
+                details: jsonError.message,
+                suggestion: "Check Cloudflare logs for raw response details"
+            }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
     }
 
     // --- Extract reply (only if JSON parsing succeeded) ---
-    const aiReply = llmResult.choices?.[0]?.message?.content?.trim();
+    let aiReply;
+    try {
+        aiReply = llmResult.choices?.[0]?.message?.content?.trim();
+        if (!aiReply) {
+            // 尝试其他可能的响应格式
+            aiReply = llmResult.response || llmResult.output || llmResult.text || llmResult.content;
+            
+            if (!aiReply && typeof llmResult === 'string') {
+                // 如果llmResult本身是字符串，直接使用它
+                aiReply = llmResult.trim();
+            }
+        }
+    } catch (extractError) {
+        console.error('[handleChatRequest V10] Error extracting AI reply from result:', extractError);
+    }
+    
     if (!aiReply) {
         console.error('[handleChatRequest V10] Could not extract AI reply from parsed LLM response:', JSON.stringify(llmResult));
         console.log("[handleChatRequest V10] Returning 500 Internal Server Error (Parse Error - No Reply Content).");
-        return new Response(JSON.stringify({ error: 'Failed to parse AI response (content missing).' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ 
+            error: 'Failed to parse AI response (content missing).', 
+            responseStructure: Object.keys(llmResult).join(', ')
+        }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
     console.log(`[handleChatRequest V10] Successfully extracted AI reply.`);
 
