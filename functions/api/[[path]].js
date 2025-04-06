@@ -13,52 +13,54 @@
 const VALID_LOGIN_CODE = "1234567890";
 
 export async function onRequest(context) {
-  // context includes:
-  // - request: The incoming request object.
-  // - env: Environment variables (including KV bindings).
-  // - next: Function to invoke the next middleware/function (not used here).
-  // - data: Data passed between functions (not used here).
-
   const { request, env } = context;
   const url = new URL(request.url);
 
-  // Only respond to requests on the /api path
-  if (!url.pathname.startsWith('/api/')) {
-    return new Response('Not Found', { status: 404 });
-  }
+  // --- Only process requests starting with /api/ ---
+  if (url.pathname.startsWith('/api/')) {
+    try {
+      // --- API Request Routing ---
 
-  // --- Request Routing ---
-  try {
-    // Handle Login requests
-    if (url.pathname === '/api/login' && request.method === 'POST') {
-      return handleLoginRequest(request, env);
-    }
+      // Handle Login requests
+      if (url.pathname === '/api/login' && request.method === 'POST') {
+        return handleLoginRequest(request, env); // Return the response from the handler
+      }
 
-    // Handle Chat requests (Placeholder for now)
-    if (url.pathname === '/api/chat' && request.method === 'POST') {
-      // TODO: Implement chat handling logic later
-      // Requires checking login status (e.g., using a session token or verifying code again)
-      return new Response(JSON.stringify({ message: 'Chat endpoint placeholder' }), {
+      // Handle Chat requests (Placeholder for now)
+      if (url.pathname === '/api/chat' && request.method === 'POST') {
+        // TODO: Implement chat handling logic later
+        // Requires checking login status (e.g., using a session token or verifying code again)
+        return new Response(JSON.stringify({ message: 'Chat endpoint placeholder' }), { // Return the response
+          headers: { 'Content-Type': 'application/json' },
+          status: 200,
+        });
+      }
+
+      // --- Add other API routes later (e.g., admin functions) ---
+
+      // If no API route matches inside /api/
+      return new Response(JSON.stringify({ error: 'API route not found' }), { // Return 404 for unknown API routes
+        status: 404,
         headers: { 'Content-Type': 'application/json' },
-        status: 200,
+      });
+
+    } catch (error) {
+      console.error('Error handling API request:', error);
+      return new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), { // Return 500 for errors within API handlers
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
       });
     }
-
-    // --- Add other routes later (e.g., admin functions) ---
-
-    // If no route matches
-    return new Response(JSON.stringify({ error: 'API route not found' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-  } catch (error) {
-    console.error('Error handling request:', error);
-    return new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
   }
+
+  // --- If the path does NOT start with /api/ ---
+  // This function does not return anything here.
+  // Cloudflare Pages will automatically look for a matching static file in the 'public' directory.
+  // For example, if the request is for '/script.js', Pages will serve 'public/script.js'.
+  // If the request is for '/', Pages will serve 'public/index.html'.
+
+  // If you need to explicitly pass the request to the static asset handler (less common now):
+  // return context.next();
 }
 
 /**

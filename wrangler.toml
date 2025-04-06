@@ -1,0 +1,12 @@
+# wrangler.toml
+name = "paperg" # 给你的项目起个名字
+pages_build_output_dir = "public" # 指定静态文件目录
+
+# KV Namespace binding for local development
+# Make sure the variable name 'KV_NAMESPACE' matches the one used in the worker code (env.KV_NAMESPACE)
+# And the id matches the preview_id of your KV namespace in Cloudflare dashboard
+# (You might need to create a separate preview namespace or use the production one carefully)
+[[kv_namespaces]]
+binding = "KV_NAMESPACE"
+id = "4dcd1b2c5cf94fbeb5fe79f53fdf6fc4" # <--- 在 Cloudflare Dashboard > Workers & Pages > KV 中找到并替换 ID
+# preview_id = "YOUR_KV_NAMESPACE_PREVIEW_ID" # 使用 preview_id 通常更适合本地开发
