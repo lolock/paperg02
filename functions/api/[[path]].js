@@ -243,11 +243,28 @@ async function handleChatRequest(request, env) {
     // --- Construct Full URL ---
     let fullApiUrl;
     try {
-        fullApiUrl = new URL("/chat/completions", apiBaseUrl).toString();
+        // Check if apiBaseUrl already ends with /v1
+        if (apiBaseUrl.endsWith('/v1')) {
+            fullApiUrl = new URL("/chat/completions", apiBaseUrl).toString();
+        } else if (apiBaseUrl.endsWith('/')) {
+            // If it ends with a slash but not /v1
+            fullApiUrl = new URL("v1/chat/completions", apiBaseUrl).toString();
+        } else {
+            // If it doesn't end with a slash
+            fullApiUrl = new URL("/v1/chat/completions", apiBaseUrl).toString();
+        }
+        
+        console.log(`[handleChatRequest V10] Constructed Full API URL: ${fullApiUrl}`);
+        
+        // Validate the URL is properly formed
+        new URL(fullApiUrl); // This will throw if URL is invalid
     } catch (urlError) {
         console.error(`[handleChatRequest V10] Invalid API_ENDPOINT format: ${apiBaseUrl}`, urlError);
         console.log("[handleChatRequest V10] Returning 500 Internal Server Error (Invalid API Endpoint URL).");
-        return new Response(JSON.stringify({ error: 'Server configuration error: Invalid API Endpoint URL format.', details: urlError.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ 
+            error: 'Server configuration error: Invalid API Endpoint URL format.', 
+            details: `Failed to construct valid URL from base: ${apiBaseUrl}. Error: ${urlError.message}`
+        }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
     console.log(`[handleChatRequest V10] Constructed Full API URL: ${fullApiUrl}`);
 
