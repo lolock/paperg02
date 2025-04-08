@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let isLoggedIn = false;
     let currentChatId = null;
     let userLoginCode = null; // Store login code after successful login
+    let currentAppState = null; // Store state received from backend { status: '...', current_chapter_index: ... }
 
     // --- Initial Setup ---
     messageInput.disabled = true;
@@ -109,11 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
         messageInput.disabled = !enable;
         // Send button is disabled if not enabled OR if input is empty
         sendButton.disabled = !enable || messageInput.value.trim() === '';
-        if(enable) {
-             messageInput.placeholder = "输入你的消息...";
-        } else {
-             messageInput.placeholder = "请先登录...";
-        }
+        // Update placeholder whenever enabling/disabling chat
+        updateInputPlaceholder();
     }
 
     /**
@@ -257,7 +255,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 // --- AI Response Successful ---
                 console.log('Backend chat successful.');
                 // Update the "thinking" bubble with the actual AI reply
-                updateMessage(thinkingId, result.reply);
+                updateMessage(thinkingId, result.reply); // Render AI reply (includes potential instructions)
+
+                // Store the state received from backend
+                currentAppState = result.state || null;
+                console.log('Received state:', currentAppState);
+
+                // Update UI based on the new state
+                updateInputPlaceholder(); // Update placeholder text
+
+                // Handle completed state
+                if (currentAppState && currentAppState.status === 'COMPLETED') {
+                   displayInfoMessage("流程已完成。您可以点击“新聊天”开始新的项目。");
+                   setChatEnabled(false); // Disable input after completion
+                   messageInput.placeholder = "流程已完成";
+                }
+
             } else {
                 // --- AI Response Failed (Backend error or invalid response) ---
                 console.error('Backend chat failed:', result.error || `HTTP status ${response.status}`);
@@ -270,6 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     errorBubble.classList.add('bg-red-100', 'text-red-700');
                     errorBubble.classList.remove('bg-gray-200', 'text-gray-800', 'italic', 'text-gray-500');
                  }
+                 // Don't update currentAppState on error
             }
 
         } catch (error) {
@@ -283,19 +297,54 @@ document.addEventListener('DOMContentLoaded', () => {
                errorBubble.classList.remove('bg-gray-200', 'text-gray-800', 'italic', 'text-gray-500');
             }
         } finally {
-             // Re-enable input for the next message
-             // Check login status again, just in case
-             if (isLoggedIn) {
+             // Re-enable input for the next message (unless completed)
+             if (isLoggedIn && (!currentAppState || currentAppState.status !== 'COMPLETED')) {
                  messageInput.disabled = false;
                  // Re-evaluate send button state based on potentially empty input
                  sendButton.disabled = messageInput.value.trim() === '';
              } else {
-                 // If somehow logged out during the process, keep disabled
+                 // If somehow logged out or completed, keep disabled
                  messageInput.disabled = true;
                  sendButton.disabled = true;
              }
+             // Ensure correct placeholder is set even after error/finally
+             updateInputPlaceholder();
         }
     }
+
+    /**
+     * Updates the message input placeholder based on the current application state.
+     */
+    function updateInputPlaceholder() {
+        if (!isLoggedIn) {
+            messageInput.placeholder = "请先登录...";
+            return;
+        }
+
+        if (!currentAppState || currentAppState.status === 'AWAITING_INITIAL_INPUT') {
+            messageInput.placeholder = "请输入您的初始需求...";
+        } else if (currentAppState.status === 'AWAITING_OUTLINE_APPROVAL') {
+            messageInput.placeholder = "检查大纲后，输入 'C' 确认, 'E' 编辑, 或 'A' 放弃...";
+        } else if (currentAppState.status === 'EDITING_OUTLINE') {
+            messageInput.placeholder = "请输入您对大纲的修改建议...";
+        } else if (currentAppState.status === 'AWAITING_CHAPTER_FEEDBACK') {
+            const chapterNum = currentAppState.current_chapter_index !== null ? currentAppState.current_chapter_index + 1 : '?';
+            messageInput.placeholder = `检查第 ${chapterNum} 章后，输入 'C' 确认, 'E' 编辑, 或 'A' 放弃...`;
+        } else if (currentAppState.status === 'EDITING_CHAPTER') {
+            const chapterNum = currentAppState.current_chapter_index !== null ? currentAppState.current_chapter_index + 1 : '?';
+            messageInput.placeholder = `请输入您对第 ${chapterNum} 章的修改建议...`;
+        } else if (currentAppState.status === 'AWAITING_NEXT_ACTION') {
+             messageInput.placeholder = "输入 'O' 编辑大纲 或 'N' 开始新项目...";
+        } else if (currentAppState.status === 'GENERATING_OUTLINE' || currentAppState.status === 'GENERATING_CHAPTER') {
+             messageInput.placeholder = "AI 正在处理，请稍候...";
+        } else if (currentAppState.status === 'COMPLETED') {
+            messageInput.placeholder = "流程已完成";
+        }
+         else {
+            messageInput.placeholder = "输入你的消息..."; // Default
+        }
+    }
+
 
     /**
      * Handles starting a new chat session.
@@ -304,16 +353,18 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Starting new chat...');
         chatWindow.innerHTML = ''; // Clear chat display
         messageInput.value = ''; // Clear input field
-        sendButton.disabled = true; // Disable send button
-        messageInput.style.height = 'auto'; // Reset input height
-        currentChatId = null; // Reset chat identifier (for history later)
-        // Display appropriate initial message
+        sendButton.disabled = true; // Disable send button until user types something
+        currentAppState = null; // Reset frontend state tracking
         if (isLoggedIn) {
-            displayInfoMessage("新的对话已开始。");
+           setChatEnabled(true); // Re-enable chat if logged in
+           updateInputPlaceholder(); // Set initial placeholder
+           displayInfoMessage("新的对话已开始。请输入您的需求。");
         } else {
-            displayInfoMessage("请输入有效的 10 位登录码以开始。");
+           setChatEnabled(false); // Keep disabled if not logged in
+           updateInputPlaceholder(); // Set login placeholder
+           displayInfoMessage("请输入有效的 10 位登录码以开始。");
         }
-        // TODO: Update history list UI and potentially inform backend later.
+        messageInput.focus();
     }
 
     // --- Event Listeners ---
