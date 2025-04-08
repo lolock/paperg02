@@ -120,12 +120,60 @@ async function handleLoginRequest(request, env) {
 
     const kvValue = await env.KV_NAMESPACE.get(providedCode);
 
-    if (kvValue !== null) { // Key exists
-      // console.log(`Successful login attempt with valid KV code: ${providedCode}`); // Optional: Keep if needed for audit
+    if (kvValue !== null) { // Key exists - Login code is potentially valid
+      // {{ 编辑 1: 状态检查和初始化逻辑 }}
+      let currentState = null;
+      let needsInitialization = false;
+
+      try {
+        currentState = JSON.parse(kvValue);
+        // 验证状态结构: 必须是对象且包含 status 属性
+        if (!currentState || typeof currentState !== 'object' || typeof currentState.status === 'undefined') {
+          console.log(`[handleLoginRequest] Parsed state for ${providedCode} is invalid or missing status. Flagging for initialization.`);
+          needsInitialization = true;
+          currentState = null; // 重置 currentState 确保后续初始化
+        } else {
+          console.log(`[handleLoginRequest] User ${providedCode} logged in with existing valid state: ${currentState.status}`);
+          // 状态有效，无需初始化。Optional: 可以在这里更新最后登录时间等信息
+        }
+      } catch (parseError) {
+        // JSON 解析失败，说明 KV 中的值不是有效的状态对象
+        console.log(`[handleLoginRequest] Failed to parse KV value for ${providedCode}. Flagging for initialization. Error: ${parseError.message}`);
+        needsInitialization = true;
+        currentState = null; // 重置 currentState
+      }
+
+      // 如果需要初始化 (解析失败或结构无效)
+      if (needsInitialization) {
+        try {
+          currentState = {
+            status: 'AWAITING_INITIAL_INPUT',
+            initial_requirements: null,
+            outline: null,
+            approved_outline: null,
+            current_chapter_index: -1,
+            confirmed_chapters: [],
+            conversation_history: [] // 保留一个空的对话历史
+          };
+          // 将新的初始状态写入KV，覆盖旧的无效值
+          await env.KV_NAMESPACE.put(providedCode, JSON.stringify(currentState));
+          console.log(`[handleLoginRequest] Initialized and saved new state for user ${providedCode}`);
+        } catch (stateError) {
+          // KV 写入失败是一个严重问题，应该记录并可能阻止登录
+          console.error(`[handleLoginRequest] CRITICAL: Failed to initialize/save state for ${providedCode} after validation! Error:`, stateError);
+          // 根据策略，这里可以选择返回 500 错误，因为无法保证状态一致性
+          return new Response(JSON.stringify({ error: 'Server error during state initialization.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+
+      // 状态检查和初始化完成后，返回成功登录响应
       return new Response(JSON.stringify({ success: true, message: 'Login successful.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    } else { // Key does not exist
-      console.warn(`Failed login attempt with non-existent KV code: ${providedCode}`); // Keep warning for failed attempts
-      return new Response(JSON.stringify({ success: false, error: 'Invalid login code.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+
+    } else { // Key does not exist - Invalid login code
+      console.warn(`[handleLoginRequest] Failed login attempt with non-existent KV code: ${providedCode}`);
+      // {{ 编辑 2: 移除此处的状态初始化逻辑 }}
+      // (原先在 else 分支中的 try...catch 状态初始化代码已被移除，因为它应该在成功登录时处理)
+      return new Response(JSON.stringify({ error: 'Invalid or expired login code.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
     // --- End of KV Validation ---
 
