@@ -324,17 +324,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!currentAppState || currentAppState.status === 'AWAITING_INITIAL_INPUT') {
             messageInput.placeholder = "请输入您的初始需求...";
         } else if (currentAppState.status === 'AWAITING_OUTLINE_APPROVAL') {
-            messageInput.placeholder = "检查大纲后，输入 'C' 确认, 'E' 编辑, 或 'A' 放弃...";
-        } else if (currentAppState.status === 'EDITING_OUTLINE') {
-            messageInput.placeholder = "请输入您对大纲的修改建议...";
+            // {{ 编辑 1: 修改提示，移除 E/A 选项 }}
+            messageInput.placeholder = "检查大纲后，输入 'C' 确认，或直接输入修改意见...";
+        // {{ 编辑 2: 删除 EDITING_OUTLINE 状态的判断 }}
+        // ... 'EDITING_OUTLINE' 对应的 else if 代码块已被移除
         } else if (currentAppState.status === 'AWAITING_CHAPTER_FEEDBACK') {
             const chapterNum = currentAppState.current_chapter_index !== null ? currentAppState.current_chapter_index + 1 : '?';
-            messageInput.placeholder = `检查第 ${chapterNum} 章后，输入 'C' 确认, 'E' 编辑, 或 'A' 放弃...`;
-        } else if (currentAppState.status === 'EDITING_CHAPTER') {
-            const chapterNum = currentAppState.current_chapter_index !== null ? currentAppState.current_chapter_index + 1 : '?';
-            messageInput.placeholder = `请输入您对第 ${chapterNum} 章的修改建议...`;
-        } else if (currentAppState.status === 'AWAITING_NEXT_ACTION') {
-             messageInput.placeholder = "输入 'O' 编辑大纲 或 'N' 开始新项目...";
+        // {{ 编辑 3: 修改提示，移除 E/A 选项 }}
+            messageInput.placeholder = `检查第 ${chapterNum} 章后，输入 'C' 确认，或直接输入修改意见...`;
+        // {{ 编辑 4: 删除 EDITING_CHAPTER 状态的判断 }}
+        // ... 'EDITING_CHAPTER' 对应的 else if 代码块已被移除
+        // {{ 编辑 5: 删除 AWAITING_NEXT_ACTION 状态的判断 }}
+        // ... 'AWAITING_NEXT_ACTION' 对应的 else if 代码块已被移除
         } else if (currentAppState.status === 'GENERATING_OUTLINE' || currentAppState.status === 'GENERATING_CHAPTER') {
              messageInput.placeholder = "AI 正在处理，请稍候...";
         } else if (currentAppState.status === 'COMPLETED') {

@@ -14,4 +14,4 @@ id = "4dcd1b2c5cf94fbeb5fe79f53fdf6fc4" # 或者 preview_id
 [vars]
 API_ENDPOINT = "https://api.tu-zi.com/v1" # 替换为你的生产 API Endpoint
 LLM_MODEL = "grok-3"                     # 替换为你的生产模型名称
-SYSTEM_PROMPT = "You are a helpful assistant." # 你的生产系统提示
+SYSTEM_PROMPT = "你是一个相关领域经验丰富的学者，你在撰写学术论文时，能够展现专业性并融入个人特色。" # 你的生产系统提示
