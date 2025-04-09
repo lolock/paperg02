@@ -32,6 +32,8 @@ export async function onRequest(context) {
       response = await handleLoginRequest(request, env);
     } else if (url.pathname === '/api/chat' && request.method === 'POST') {
       response = await handleChatRequest(request, env);
+    } else if (url.pathname === '/api/reset_chat' && request.method === 'POST') { // {{ 添加 reset_chat 路由 }}
+      response = await handleResetChatRequest(request, env);                 // {{ 调用新的处理函数 }}
     } else {
       // Route not found or method not allowed
       console.warn(`No matching route found for ${request.method} ${url.pathname}.`); // Keep warning for unmatched routes
@@ -631,5 +633,71 @@ async function handleChatRequest(request, env) {
   } catch (error) {
     console.error('[handleChatRequest] Unexpected error caught in try-catch block:', error); // Keep critical error
     return new Response(JSON.stringify({ error: 'Failed to process chat request.', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+
+/**
+ * Handles the /api/reset_chat POST request to reset chat state.
+ * @param {Request} request
+ * @param {object} env - Contains KV_NAMESPACE binding
+ * @returns {Promise<Response>}
+ */
+async function handleResetChatRequest(request, env) { // {{ 定义新的 handleResetChatRequest 函数 }}
+  try {
+    // Validate request type
+    if (!request.headers.get('content-type')?.includes('application/json')) {
+       return new Response(JSON.stringify({ error: 'Invalid request body type. Expected JSON.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // Parse request body
+    let body;
+    try {
+      body = await request.json();
+    } catch (e) {
+      return new Response(JSON.stringify({ error: 'Invalid JSON format in request body.'}), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+    const providedCode = body.code;
+    if (!providedCode) {
+       return new Response(JSON.stringify({ error: 'Login code is required.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // Ensure KV is configured
+    if (!env.KV_NAMESPACE) {
+        console.error("[handleResetChatRequest] KV_NAMESPACE binding is not configured.");
+        return new Response(JSON.stringify({ error: 'Server configuration error: KV Namespace not bound.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // Check if the code actually exists in KV (prevent resetting non-existent sessions)
+    const currentKvValue = await env.KV_NAMESPACE.get(providedCode);
+    if (currentKvValue === null) {
+      console.warn(`[handleResetChatRequest] Attempt to reset non-existent code: ${providedCode}`);
+      return new Response(JSON.stringify({ error: 'Invalid or expired login code. Cannot reset.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // Define the initial state
+    const initialState = {
+      status: 'AWAITING_INITIAL_INPUT',
+      initial_requirements: null,
+      outline: null,
+      approved_outline: null,
+      current_chapter_index: -1,
+      confirmed_chapters: [],
+      conversation_history: [] // Always start with an empty history
+    };
+
+    // Overwrite the KV value with the initial state
+    try {
+      await env.KV_NAMESPACE.put(providedCode, JSON.stringify(initialState));
+      console.log(`[handleResetChatRequest] Successfully reset state for user ${providedCode}`);
+      return new Response(JSON.stringify({ success: true, message: 'Chat reset successfully.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    } catch (stateError) {
+      console.error(`[handleResetChatRequest] CRITICAL: Failed to write initial state for ${providedCode} during reset! Error:`, stateError);
+      return new Response(JSON.stringify({ error: 'Server error during state reset.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+
+  } catch (error) {
+    console.error('[handleResetChatRequest] Unexpected error caught:', error);
+    return new Response(JSON.stringify({ error: 'Failed to process reset request.', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }

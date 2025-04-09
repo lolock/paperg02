@@ -5,17 +5,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginCodeInput = document.getElementById('login-code');
     const loginButton = document.getElementById('login-btn');
     const loginStatus = document.getElementById('login-status');
-    const newChatButton = document.getElementById('new-chat-btn');
-    const historyList = document.getElementById('history-list');
     const chatWindow = document.getElementById('chat-window');
     const messageInput = document.getElementById('message-input');
-    const sendButton = document.getElementById('send-button');
+    const sendButton = document.getElementById('send-btn');
+    const newChatButton = document.getElementById('new-chat-btn');
+    const loginSection = document.getElementById('login-section');
+    const chatSection = document.getElementById('chat-section');
+    const sidebar = document.getElementById('sidebar'); // Assuming sidebar exists
 
-    // --- Application State ---
+    // --- State Variables ---
     let isLoggedIn = false;
-    let currentChatId = null;
-    let userLoginCode = null; // Store login code after successful login
-    let currentAppState = null; // Store state received from backend { status: '...', current_chapter_index: ... }
+    let userLoginCode = null; // Store the logged-in user's code
+    let currentAppState = null; // To store the state received from backend
 
     // --- Initial Setup ---
     messageInput.disabled = true;
