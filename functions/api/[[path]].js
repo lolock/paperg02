@@ -311,51 +311,17 @@ async function handleChatRequest(request, env) {
             { role: "system", content: systemPrompt },
             { role: "user", content: `已批准的大纲如下：\n\`\`\`\n${currentState.approved_outline}\n\`\`\`\n\n请生成第 ${currentState.current_chapter_index + 1} 章的完整内容。` }
           ];
-        } else if (command === 'E') { // 编辑大纲
-          aiReply = "请提供您希望如何修改大纲的具体建议。";
-          currentState.status = 'EDITING_OUTLINE';
+        } else { // 用户提供了修改建议，重新生成大纲
+          // 将用户的反馈视为对大纲的修改建议
+          currentState.status = 'GENERATING_OUTLINE';
           stateChanged = true;
           
-          return new Response(JSON.stringify({ 
-            reply: aiReply,
-            state: { status: currentState.status }
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } else if (command === 'A') { // 放弃当前流程
-          aiReply = "已放弃当前流程。请提供新的需求。";
-          currentState = {
-            status: 'AWAITING_INITIAL_INPUT',
-            initial_requirements: null,
-            outline: null,
-            approved_outline: null,
-            current_chapter_index: -1,
-            confirmed_chapters: [],
-            conversation_history: currentState.conversation_history || []
-          };
-          stateChanged = true;
-          
-          return new Response(JSON.stringify({ 
-            reply: aiReply,
-            state: { status: currentState.status }
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } else { // 无法识别的命令
-          aiReply = "请输入有效的命令：'C'确认大纲，'E'编辑大纲，或'A'放弃流程。";
-          return new Response(JSON.stringify({ 
-            reply: aiReply,
-            state: { status: currentState.status }
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          systemPrompt = "你是一个AI助手，负责根据用户的初始需求和修改建议生成改进的内容大纲。请以Markdown格式输出大纲。";
+          messages = [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `初始需求：\n${currentState.initial_requirements}\n\n原始大纲：\n${currentState.outline}\n\n修改建议：\n${userMessage}\n\n请生成修改后的大纲。` }
+          ];
         }
-        break;
-        
-      case 'EDITING_OUTLINE':
-        // 用户提供了大纲修改建议，重新生成大纲
-        currentState.status = 'GENERATING_OUTLINE';
-        stateChanged = true;
-        
-        systemPrompt = "你是一个AI助手，负责根据用户的初始需求和修改建议生成改进的内容大纲。请以Markdown格式输出大纲。";
-        messages = [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `初始需求：\n${currentState.initial_requirements}\n\n原始大纲：\n${currentState.outline}\n\n修改建议：\n${userMessage}\n\n请生成修改后的大纲。` }
-        ];
         break;
         
       case 'AWAITING_CHAPTER_FEEDBACK':
@@ -405,81 +371,16 @@ async function handleChatRequest(request, env) {
               { role: "user", content: `已批准的大纲如下：\n\`\`\`\n${currentState.approved_outline}\n\`\`\`\n\n请生成第 ${currentState.current_chapter_index + 1} 章的完整内容。` }
             ];
           }
-        } else if (chapterCommand === 'E') { // 编辑章节
-          aiReply = "请提供您希望如何修改本章内容的具体建议。";
-          currentState.status = 'EDITING_CHAPTER';
+        } else { // 用户提供了修改建议，重新生成当前章节
+          // 将用户的反馈视为对当前章节的修改建议
+          currentState.status = 'GENERATING_CHAPTER';
           stateChanged = true;
           
-          return new Response(JSON.stringify({ 
-            reply: aiReply,
-            state: { status: currentState.status }
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } else if (chapterCommand === 'A') { // 放弃当前流程
-          aiReply = "已放弃当前章节编辑。您想继续编辑大纲还是开始新的项目？请输入'O'继续编辑大纲或'N'开始新项目。";
-          currentState.status = 'AWAITING_NEXT_ACTION';
-          stateChanged = true;
-          
-          return new Response(JSON.stringify({ 
-            reply: aiReply,
-            state: { status: currentState.status }
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } else { // 无法识别的命令
-          aiReply = "请输入有效的命令：'C'确认章节，'E'编辑章节，或'A'放弃当前章节。";
-          return new Response(JSON.stringify({ 
-            reply: aiReply,
-            state: { status: currentState.status }
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        }
-        break;
-        
-      case 'EDITING_CHAPTER':
-        // 用户提供了章节修改建议，重新生成章节
-        currentState.status = 'GENERATING_CHAPTER';
-        stateChanged = true;
-        
-        systemPrompt = "你是一个AI写作助手，负责根据用户的修改建议调整章节内容。";
-        messages = [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `大纲：\n${currentState.approved_outline}\n\n原始第${currentState.current_chapter_index + 1}章内容：\n${currentState.last_chapter_content || "无原始内容"}\n\n修改建议：\n${userMessage}\n\n请生成修改后的第${currentState.current_chapter_index + 1}章内容。` }
-        ];
-        break;
-        
-      case 'AWAITING_NEXT_ACTION':
-        // 处理用户选择下一步操作
-        const nextAction = userMessage.trim().toUpperCase();
-        
-        if (nextAction === 'O') { // 继续编辑大纲
-          aiReply = `当前大纲：\n\`\`\`\n${currentState.approved_outline || currentState.outline}\n\`\`\`\n\n请提供您希望如何修改大纲的具体建议。`;
-          currentState.status = 'EDITING_OUTLINE';
-          stateChanged = true;
-          
-          return new Response(JSON.stringify({ 
-            reply: aiReply,
-            state: { status: currentState.status }
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } else if (nextAction === 'N') { // 开始新项目
-          aiReply = "好的，请提供新项目的需求。";
-          currentState = {
-            status: 'AWAITING_INITIAL_INPUT',
-            initial_requirements: null,
-            outline: null,
-            approved_outline: null,
-            current_chapter_index: -1,
-            confirmed_chapters: [],
-            conversation_history: currentState.conversation_history || []
-          };
-          stateChanged = true;
-          
-          return new Response(JSON.stringify({ 
-            reply: aiReply,
-            state: { status: currentState.status }
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } else { // 无法识别的命令
-          aiReply = "请输入有效的命令：'O'继续编辑大纲或'N'开始新项目。";
-          return new Response(JSON.stringify({ 
-            reply: aiReply,
-            state: { status: currentState.status }
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          systemPrompt = "你是一个AI写作助手，负责根据用户的修改建议调整章节内容。";
+          messages = [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `大纲：\n${currentState.approved_outline}\n\n原始第${currentState.current_chapter_index + 1}章内容：\n${currentState.last_chapter_content || "无原始内容"}\n\n修改建议：\n${userMessage}\n\n请生成修改后的第${currentState.current_chapter_index + 1}章内容。` }
+          ];
         }
         break;
         
@@ -568,15 +469,15 @@ async function handleChatRequest(request, env) {
       currentState.status = 'AWAITING_OUTLINE_APPROVAL';
       stateChanged = true;
       
-      // 添加用户提示
-      aiReply = `${aiReply}\n\n请检查以上大纲并回复：\n- 'C' 确认大纲\n- 'E' 编辑大纲\n- 'A' 放弃流程`;
+      // 添加用户提示 - 简化为只有 'C' 命令
+      aiReply = `${aiReply}\n\n请检查以上大纲并回复：\n- 输入 'C' 确认大纲\n- 或直接输入您的修改意见`;
     } else if (currentState.status === 'GENERATING_CHAPTER') {
       currentState.last_chapter_content = aiReply;
       currentState.status = 'AWAITING_CHAPTER_FEEDBACK';
       stateChanged = true;
       
-      // 添加用户提示
-      aiReply = `${aiReply}\n\n请检查以上第 ${currentState.current_chapter_index + 1} 章内容并回复：\n- 'C' 确认并继续下一章\n- 'E' 编辑本章内容\n- 'A' 放弃当前章节`;
+      // 添加用户提示 - 简化为只有 'C' 命令
+      aiReply = `${aiReply}\n\n请检查以上第 ${currentState.current_chapter_index + 1} 章内容并回复：\n- 输入 'C' 确认并继续下一章\n- 或直接输入您对本章的修改意见`;
     }
     
     // 记录对话历史
