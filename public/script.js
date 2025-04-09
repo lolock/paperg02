@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginStatus = document.getElementById('login-status');
     const chatWindow = document.getElementById('chat-window');
     const messageInput = document.getElementById('message-input');
-    const sendButton = document.getElementById('send-btn');
+    const sendButton = document.getElementById('send-button');
     const newChatButton = document.getElementById('new-chat-btn');
     const loginSection = document.getElementById('login-section');
     const chatSection = document.getElementById('chat-section');
@@ -370,6 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Event Listeners ---
     // Login button click
+    // {{ 由于之前的 TypeError 已修复，这个事件监听器现在可以成功附加 }}
     loginButton.addEventListener('click', handleLogin);
 
     // Login input enter key press
