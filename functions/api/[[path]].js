@@ -32,8 +32,6 @@ export async function onRequest(context) {
       response = await handleLoginRequest(request, env);
     } else if (url.pathname === '/api/chat' && request.method === 'POST') {
       response = await handleChatRequest(request, env);
-    } else if (url.pathname === '/api/reset_chat' && request.method === 'POST') { // {{ 添加 reset_chat 路由 }}
-      response = await handleResetChatRequest(request, env);                 // {{ 调用新的处理函数 }}
     } else {
       // Route not found or method not allowed
       console.warn(`No matching route found for ${request.method} ${url.pathname}.`); // Keep warning for unmatched routes
@@ -123,58 +121,46 @@ async function handleLoginRequest(request, env) {
     const kvValue = await env.KV_NAMESPACE.get(providedCode);
 
     if (kvValue !== null) { // Key exists - Login code is potentially valid
-      // {{ 编辑 1: 状态检查和初始化逻辑 }}
-      let currentState = null;
-      let needsInitialization = false;
-
+      // {{ 编辑 1: 恢复之前的逻辑，仅在状态无效或解析失败时初始化 }}
+      let stateValid = false;
       try {
-        currentState = JSON.parse(kvValue);
-        // 验证状态结构: 必须是对象且包含 status 属性
-        if (!currentState || typeof currentState !== 'object' || typeof currentState.status === 'undefined') {
-          console.log(`[handleLoginRequest] Parsed state for ${providedCode} is invalid or missing status. Flagging for initialization.`);
-          needsInitialization = true;
-          currentState = null; // 重置 currentState 确保后续初始化
-        } else {
+        const currentState = JSON.parse(kvValue);
+        // 仅验证状态是否是对象并且有 status 属性
+        if (currentState && typeof currentState === 'object' && typeof currentState.status !== 'undefined') {
           console.log(`[handleLoginRequest] User ${providedCode} logged in with existing valid state: ${currentState.status}`);
-          // 状态有效，无需初始化。Optional: 可以在这里更新最后登录时间等信息
+          stateValid = true;
+        } else {
+           console.log(`[handleLoginRequest] Parsed state for ${providedCode} is invalid or missing status. Will initialize if needed.`);
         }
       } catch (parseError) {
         // JSON 解析失败，说明 KV 中的值不是有效的状态对象
-        console.log(`[handleLoginRequest] Failed to parse KV value for ${providedCode}. Flagging for initialization. Error: ${parseError.message}`);
-        needsInitialization = true;
-        currentState = null; // 重置 currentState
+        console.log(`[handleLoginRequest] Failed to parse KV value for ${providedCode}. Will initialize. Error: ${parseError.message}`);
       }
 
-      // 如果需要初始化 (解析失败或结构无效)
-      if (needsInitialization) {
+      // 如果状态无效或解析失败，则进行初始化 (确保至少有一个基本状态)
+      if (!stateValid) {
         try {
-          currentState = {
-            status: 'AWAITING_INITIAL_INPUT',
-            initial_requirements: null,
-            outline: null,
-            approved_outline: null,
-            current_chapter_index: -1,
-            confirmed_chapters: [],
-            conversation_history: [] // 保留一个空的对话历史
-          };
-          // 将新的初始状态写入KV，覆盖旧的无效值
-          await env.KV_NAMESPACE.put(providedCode, JSON.stringify(currentState));
-          console.log(`[handleLoginRequest] Initialized and saved new state for user ${providedCode}`);
+           const initialState = {
+             status: 'AWAITING_INITIAL_INPUT',
+             initial_requirements: null,
+             outline: null,
+             approved_outline: null,
+             current_chapter_index: -1,
+             confirmed_chapters: [],
+             conversation_history: []
+           };
+           await env.KV_NAMESPACE.put(providedCode, JSON.stringify(initialState));
+           console.log(`[handleLoginRequest] Initialized missing/invalid state for user ${providedCode}`);
         } catch (stateError) {
-          // KV 写入失败是一个严重问题，应该记录并可能阻止登录
-          console.error(`[handleLoginRequest] CRITICAL: Failed to initialize/save state for ${providedCode} after validation! Error:`, stateError);
-          // 根据策略，这里可以选择返回 500 错误，因为无法保证状态一致性
-          return new Response(JSON.stringify({ error: 'Server error during state initialization.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+           console.error(`[handleLoginRequest] CRITICAL: Failed to initialize state for ${providedCode} during login! Error:`, stateError);
+           return new Response(JSON.stringify({ error: 'Server error during state initialization.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
         }
       }
-
-      // 状态检查和初始化完成后，返回成功登录响应
+      // --- 登录成功 ---
       return new Response(JSON.stringify({ success: true, message: 'Login successful.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
     } else { // Key does not exist - Invalid login code
       console.warn(`[handleLoginRequest] Failed login attempt with non-existent KV code: ${providedCode}`);
-      // {{ 编辑 2: 移除此处的状态初始化逻辑 }}
-      // (原先在 else 分支中的 try...catch 状态初始化代码已被移除，因为它应该在成功登录时处理)
       return new Response(JSON.stringify({ error: 'Invalid or expired login code.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
     // --- End of KV Validation ---
@@ -637,67 +623,102 @@ async function handleChatRequest(request, env) {
 }
 
 
+// {{ 编辑 2: 添加新的 handleResetRequest 函数 }}
 /**
- * Handles the /api/reset_chat POST request to reset chat state.
+ * Handles the /api/reset POST request to reset user state in KV.
  * @param {Request} request
- * @param {object} env - Contains KV_NAMESPACE binding
+ * @param {object} env - Environment object with KV_NAMESPACE binding
  * @returns {Promise<Response>}
  */
-async function handleResetChatRequest(request, env) { // {{ 定义新的 handleResetChatRequest 函数 }}
+async function handleResetRequest(request, env) {
   try {
-    // Validate request type
+    // --- Input Validation ---
     if (!request.headers.get('content-type')?.includes('application/json')) {
-       return new Response(JSON.stringify({ error: 'Invalid request body type. Expected JSON.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ error: 'Invalid request body type. Expected JSON.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
-
-    // Parse request body
     let body;
     try {
       body = await request.json();
-    } catch (e) {
-      return new Response(JSON.stringify({ error: 'Invalid JSON format in request body.'}), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    } catch (jsonError) {
+      console.error('[handleResetRequest] Failed to parse request JSON body:', jsonError);
+      return new Response(JSON.stringify({ error: 'Invalid JSON format in request body.', details: jsonError.message }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
-    const providedCode = body.code;
-    if (!providedCode) {
-       return new Response(JSON.stringify({ error: 'Login code is required.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    const loginCode = body.code;
+    if (!loginCode) {
+      return new Response(JSON.stringify({ error: 'Login code is required to reset state.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Ensure KV is configured
+    // --- KV Access and Validation ---
     if (!env.KV_NAMESPACE) {
-        console.error("[handleResetChatRequest] KV_NAMESPACE binding is not configured.");
-        return new Response(JSON.stringify({ error: 'Server configuration error: KV Namespace not bound.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      console.error("[handleResetRequest] KV_NAMESPACE binding is not configured.");
+      return new Response(JSON.stringify({ error: 'Server configuration error: KV Namespace not bound.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Check if the code actually exists in KV (prevent resetting non-existent sessions)
-    const currentKvValue = await env.KV_NAMESPACE.get(providedCode);
-    if (currentKvValue === null) {
-      console.warn(`[handleResetChatRequest] Attempt to reset non-existent code: ${providedCode}`);
-      return new Response(JSON.stringify({ error: 'Invalid or expired login code. Cannot reset.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+    // Verify the login code exists before resetting
+    const kvValue = await env.KV_NAMESPACE.get(loginCode);
+    if (kvValue === null) {
+      console.warn(`[handleResetRequest] Attempt to reset state for non-existent code: ${loginCode}`);
+      // 返回 404 或 401 都可以，取决于你想如何处理无效 code 的重置请求
+      return new Response(JSON.stringify({ error: 'Cannot reset state for invalid or expired login code.' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
     }
 
-    // Define the initial state
-    const initialState = {
-      status: 'AWAITING_INITIAL_INPUT',
-      initial_requirements: null,
-      outline: null,
-      approved_outline: null,
-      current_chapter_index: -1,
-      confirmed_chapters: [],
-      conversation_history: [] // Always start with an empty history
-    };
-
-    // Overwrite the KV value with the initial state
+    // --- Reset State ---
     try {
-      await env.KV_NAMESPACE.put(providedCode, JSON.stringify(initialState));
-      console.log(`[handleResetChatRequest] Successfully reset state for user ${providedCode}`);
-      return new Response(JSON.stringify({ success: true, message: 'Chat reset successfully.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      const initialState = {
+        status: 'AWAITING_INITIAL_INPUT',
+        initial_requirements: null,
+        outline: null,
+        approved_outline: null,
+        current_chapter_index: -1,
+        confirmed_chapters: [],
+        conversation_history: [] // 清空对话历史
+      };
+      await env.KV_NAMESPACE.put(loginCode, JSON.stringify(initialState));
+      console.log(`[handleResetRequest] Successfully reset state for user ${loginCode}`);
+      return new Response(JSON.stringify({ success: true, message: 'State reset successfully.' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     } catch (stateError) {
-      console.error(`[handleResetChatRequest] CRITICAL: Failed to write initial state for ${providedCode} during reset! Error:`, stateError);
-      return new Response(JSON.stringify({ error: 'Server error during state reset.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      console.error(`[handleResetRequest] CRITICAL: Failed to reset state for ${loginCode}! Error:`, stateError);
+      return new Response(JSON.stringify({ error: 'Server error during state reset.', details: stateError.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
   } catch (error) {
-    console.error('[handleResetChatRequest] Unexpected error caught:', error);
+    console.error('[handleResetRequest] Unexpected error caught:', error);
     return new Response(JSON.stringify({ error: 'Failed to process reset request.', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+
+/**
+ * Main Cloudflare Pages function handler for POST requests.
+ * Routes requests based on URL path.
+ * @param {object} context - The context object provided by Cloudflare Pages.
+ * @returns {Promise<Response>}
+ */
+export async function onRequestPost(context) {
+  const { request, env } = context;
+  const url = new URL(request.url);
+  const path = url.pathname;
+
+  console.log(`[onRequestPost] Received POST request for path: ${path}`); // Log path
+
+  // {{ 编辑 3: 更新路由逻辑 }}
+  try {
+    if (path.startsWith('/api/login')) {
+      console.log('[onRequestPost] Routing to handleLoginRequest');
+      return await handleLoginRequest(request, env);
+    } else if (path.startsWith('/api/chat')) {
+      console.log('[onRequestPost] Routing to handleChatRequest');
+      return await handleChatRequest(request, env);
+    } else if (path.startsWith('/api/reset')) { // 新增的路由
+       console.log('[onRequestPost] Routing to handleResetRequest');
+       return await handleResetRequest(request, env);
+    }
+     else {
+      console.warn(`[onRequestPost] Unhandled POST path: ${path}`);
+      return new Response(JSON.stringify({ error: 'Not Found' }), { status: 404 });
+    }
+  } catch (e) {
+     console.error(`[onRequestPost] Global error handler caught: ${e.message}`, e.stack);
+     return new Response(JSON.stringify({ error: 'Internal Server Error', details: e.message }), {status: 500});
   }
 }

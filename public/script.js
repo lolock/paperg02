@@ -5,18 +5,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginCodeInput = document.getElementById('login-code');
     const loginButton = document.getElementById('login-btn');
     const loginStatus = document.getElementById('login-status');
+    const newChatButton = document.getElementById('new-chat-btn');
+    const historyList = document.getElementById('history-list');
     const chatWindow = document.getElementById('chat-window');
     const messageInput = document.getElementById('message-input');
     const sendButton = document.getElementById('send-button');
-    const newChatButton = document.getElementById('new-chat-btn');
-    const loginSection = document.getElementById('login-section');
-    const chatSection = document.getElementById('chat-section');
-    const sidebar = document.getElementById('sidebar'); // Assuming sidebar exists
 
-    // --- State Variables ---
+    // --- Application State ---
     let isLoggedIn = false;
-    let userLoginCode = null; // Store the logged-in user's code
-    let currentAppState = null; // To store the state received from backend
+    let currentChatId = null;
+    let userLoginCode = null; // Store login code after successful login
+    let currentAppState = null; // Store state received from backend { status: '...', current_chapter_index: ... }
 
     // --- Initial Setup ---
     messageInput.disabled = true;
@@ -350,81 +349,86 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Handles starting a new chat session.
      */
-    function handleNewChat() {
-        console.log('Starting new chat...');
-        chatWindow.innerHTML = ''; // Clear chat display
-        messageInput.value = ''; // Clear input field
-        sendButton.disabled = true; // Disable send button until user types something
-        currentAppState = null; // Reset frontend state tracking
-        if (isLoggedIn) {
-           setChatEnabled(true); // Re-enable chat if logged in
-           updateInputPlaceholder(); // Set initial placeholder
-           displayInfoMessage("新的对话已开始。请输入您的需求。");
-        } else {
-           setChatEnabled(false); // Keep disabled if not logged in
-           updateInputPlaceholder(); // Set login placeholder
-           displayInfoMessage("请输入有效的 10 位登录码以开始。");
+    /**
+     * Handles the "New Chat" button click.
+     * Clears the chat window, resets the application state, AND calls the backend to reset KV state.
+     */
+    async function handleNewChat() { // {{ 编辑 1: 将函数改为 async }}
+        if (!isLoggedIn || !userLoginCode) {
+            displayInfoMessage("请先成功登录。");
+            return;
         }
-        messageInput.focus();
+
+        // 禁用按钮防止重复点击
+        newChatButton.disabled = true;
+        displayInfoMessage("正在重置会话状态..."); // 提供即时反馈
+
+        try {
+            // {{ 编辑 2: 调用后端 /api/reset 端点 }}
+            const response = await fetch('/api/reset', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ code: userLoginCode }), // 发送当前用户的登录码
+            });
+
+            const result = await response.json(); // 尝试解析响应
+
+            if (!response.ok || !result.success) {
+                 // 如果后端重置失败，显示错误信息并且不清除前端
+                 console.error('Failed to reset backend state:', result);
+                 displayInfoMessage(`重置会话失败: ${result.error || '未知错误'}`);
+                 // 不进行前端清理，让用户可以重试或继续当前会话
+                 return; // 停止执行
+            }
+
+            // {{ 编辑 3: 后端重置成功后，才清理前端 }}
+            // Clear the chat display window
+            chatWindow.innerHTML = '';
+            // Clear the message input field
+            messageInput.value = '';
+            // Reset the internal application state tracker
+            currentAppState = null; // Or reset to initial state if needed by UI logic
+            // Display a confirmation message
+            displayInfoMessage("新的对话已开始。请描述您的需求。");
+            // Reset the input placeholder based on the (now reset) state
+            updateInputPlaceholder(); // 确保占位符更新
+             // Enable chat input
+            setChatEnabled(true);
+
+
+        } catch (error) {
+            console.error('Error during new chat creation:', error);
+            displayInfoMessage(`创建新对话时出错: ${error.message}`);
+        } finally {
+            // 无论成功或失败，重新启用按钮
+             newChatButton.disabled = false;
+        }
     }
 
     // --- Event Listeners ---
-    // Login button click
-    // {{ 由于之前的 TypeError 已修复，这个事件监听器现在可以成功附加 }}
     loginButton.addEventListener('click', handleLogin);
-
-    // Login input enter key press
-     loginCodeInput.addEventListener('keypress', (event) => {
+    loginCodeInput.addEventListener('keypress', (event) => {
         if (event.key === 'Enter') {
-            handleLogin(); // Trigger login on Enter key
+            handleLogin();
         }
     });
 
-    // Login input validation (allow only 10 digits)
-    loginCodeInput.addEventListener('input', () => {
-        let value = loginCodeInput.value.replace(/\D/g, ''); // Remove non-digits
-        if (value.length > 10) {
-            value = value.slice(0, 10); // Limit to 10 digits
-        }
-        loginCodeInput.value = value;
-        // Basic validation feedback while typing
-        if (value.length === 10) {
-             loginStatus.textContent = ''; // Clear error if length is correct
-        } else if (value.length > 0) {
-             loginStatus.textContent = '需要 10 位数字。';
-             loginStatus.classList.remove('text-green-500');
-             loginStatus.classList.add('text-red-400');
-        } else {
-             loginStatus.textContent = ''; // Clear if empty
-        }
-    });
-
-    // Message input typing event (enable/disable send button, auto-resize)
-    messageInput.addEventListener('input', () => {
-        // Enable/disable send button based on input content AND login status
-        sendButton.disabled = messageInput.value.trim() === '' || !isLoggedIn;
-
-        // Auto-resize textarea height based on content
-        messageInput.style.height = 'auto'; // Reset height to recalculate
-        messageInput.style.height = `${messageInput.scrollHeight}px`; // Set to content height
-    });
-
-    // Send button click
     sendButton.addEventListener('click', handleSendMessage);
-
-    // Message input Enter key press (send message, unless Shift is held)
     messageInput.addEventListener('keypress', (event) => {
-        // Send if Enter is pressed WITHOUT the Shift key
+        // Allow sending with Shift+Enter for newlines, Enter alone to send
         if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault(); // Prevent default Enter behavior (new line)
-            // Trigger send only if button is not disabled
-            if (!sendButton.disabled) {
-                 handleSendMessage();
-            }
+            event.preventDefault(); // Prevent default newline behavior
+            handleSendMessage();
         }
     });
+    // Update send button state when input changes
+     messageInput.addEventListener('input', () => {
+         // Only enable send if logged in AND input is not empty
+         sendButton.disabled = !isLoggedIn || messageInput.value.trim() === '';
+     });
 
-    // New chat button click
-    newChatButton.addEventListener('click', handleNewChat);
+    newChatButton.addEventListener('click', handleNewChat); // {{ 编辑 4: 确保事件监听器已绑定 }}
 
 }); // End of DOMContentLoaded
