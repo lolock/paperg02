@@ -422,7 +422,7 @@ async function handleChatRequest(request, env) {
         console.error(`Unhandled error in handleChatRequest for code ${loginCode}:`, error);
         return new Response(JSON.stringify({ error: `服务器内部错误: ${error.message}` }), {
             status: 500, // Internal Server Error
-            headers: corsHeaders
+            headers: corsHeaders // 使用文件顶部定义的 corsHeaders
         });
     }
 }
@@ -442,6 +442,7 @@ async function handleResetRequest(request, env) {
         console.log(`Reset request received for code ${requestPayload.code}`);
     } catch (error) {
         console.error('Error parsing reset request body:', error);
+        // 使用文件顶部定义的 corsHeaders
         return new Response(JSON.stringify({ success: false, error: '无效的请求体或登录码' }), { status: 400, headers: corsHeaders });
     }
 
@@ -466,6 +467,7 @@ async function handleResetRequest(request, env) {
         console.log(`State for ${loginCode} successfully reset in KV.`);
 
         // --- Return Success Response ---
+        // 使用文件顶部定义的 corsHeaders
         return new Response(JSON.stringify({ success: true }), {
             status: 200,
             headers: corsHeaders
@@ -473,6 +475,7 @@ async function handleResetRequest(request, env) {
 
     } catch (kvError) {
         console.error(`KV operation failed during reset for code ${loginCode}:`, kvError); // Log KV error
+        // 使用文件顶部定义的 corsHeaders
         return new Response(JSON.stringify({ success: false, error: '无法重置状态存储' }), {
             status: 500, // Internal Server Error
             headers: corsHeaders
@@ -480,70 +483,4 @@ async function handleResetRequest(request, env) {
     }
 }
 
-
-// --- Main Request Handler ---
-export async function onRequest(context) {
-    const { request, env, params } = context;
-    const url = new URL(request.url);
-    const pathSegments = params.path || []; // Ensure pathSegments is an array
-
-    // Handle CORS preflight requests
-    if (request.method === 'OPTIONS') {
-        return handleOptions(request);
-    }
-
-    // API Routing
-    // Assuming API routes are like /api/ROUTE_NAME
-    const apiRoute = pathSegments[0]; // e.g., 'login', 'chat', 'reset'
-
-    try {
-        if(request.method === 'POST' && apiRoute === 'login') {
-            return await handleLoginRequest(request, env);
-        } else if (request.method === 'POST' && apiRoute === 'chat') {
-            return await handleChatRequest(request, env);
-        // {{ 编辑 1: 添加处理 /api/reset 的路由 }}
-        } else if (request.method === 'POST' && apiRoute === 'reset') {
-            return await handleResetRequest(request, env);
-        } else {
-             console.log(`Route not found: ${request.method} ${url.pathname}`);
-            return new Response(JSON.stringify({ error: '未找到路由' }), {
-                status: 404,
-                headers: corsHeaders, // Apply CORS headers even for error
-             });
-        }
-    } catch (error) {
-         console.error(`Unhandled error in onRequest: ${error.message}`, error.stack);
-         return new Response(JSON.stringify({ error: '服务器内部错误' }), {
-            status: 500,
-            headers: corsHeaders, // Apply CORS headers even for internal error
-         });
-    }
-}
-
-// --- CORS Helper ---
-// (Keep the existing handleOptions and corsHeaders definition here)
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*', // 或者更严格的源
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization', // 确保包含 'Authorization' 如果你在用
-};
-
-function handleOptions(request) {
-    if (
-        request.headers.get('Origin') !== null &&
-        request.headers.get('Access-Control-Request-Method') !== null &&
-        request.headers.get('Access-Control-Request-Headers') !== null
-    ) {
-        // Handle CORS preflight requests.
-        return new Response(null, {
-            headers: corsHeaders,
-        });
-    } else {
-        // Handle standard OPTIONS request.
-        return new Response(null, {
-            headers: {
-                Allow: 'POST, OPTIONS',
-            },
-        });
-    }
-}
+// --- Main Request Handler (保留最开始的 onRequest 定义即可) ---
