@@ -10,85 +10,99 @@
  * - KV_NAMESPACE: Binding to the Cloudflare KV namespace (for auth codes & usage).
  */
 
+// {{ Define corsHeaders at the top level }}
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*', // Consider restricting in production
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', // Added GET for potential future use
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+
 export async function onRequest(context) {
-  const { request, env } = context;
-  const url = new URL(request.url);
+    const { request, env } = context;
+    const url = new URL(request.url);
 
-  // Only respond to requests starting with /api/
-  if (!url.pathname.startsWith('/api/')) {
-    return new Response('Not Found', { status: 404 });
-  }
-
-  // Handle CORS preflight requests first
-  if (request.method === 'OPTIONS') {
-    return handleOptions();
-  }
-
-  let response; // Variable to hold the eventual response object
-
-  try {
-    // --- Request Routing ---
-    if (url.pathname === '/api/login' && request.method === 'POST') {
-      response = await handleLoginRequest(request, env);
-    } else if (url.pathname === '/api/chat' && request.method === 'POST') {
-      response = await handleChatRequest(request, env);
-    } else {
-      // Route not found or method not allowed
-      console.warn(`No matching route found for ${request.method} ${url.pathname}.`); // Keep warning for unmatched routes
-      response = new Response(JSON.stringify({ error: 'API route not found' }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json' },
-        });
+    // Only respond to requests starting with /api/
+    if (!url.pathname.startsWith('/api/')) {
+        return new Response('Not Found', { status: 404 });
     }
 
-    // Ensure we always have a Response object after the handler call
-    if (!(response instanceof Response)) {
-        console.error("Handler did not return a valid Response object. Assigning 500."); // Keep critical error
-        response = new Response(JSON.stringify({ error: 'Internal Server Error: Invalid handler response' }), {
+    // Handle CORS preflight requests first
+    if (request.method === 'OPTIONS') {
+        // Use the specific handleOptions function which includes Max-Age
+        return handleOptions();
+    }
+
+    let response; // Variable to hold the eventual response object
+
+    try {
+        // --- Request Routing ---
+        if (url.pathname === '/api/login' && request.method === 'POST') {
+            response = await handleLoginRequest(request, env);
+        } else if (url.pathname === '/api/chat' && request.method === 'POST') {
+            response = await handleChatRequest(request, env);
+        // {{ Add routing for reset }}
+        } else if (url.pathname === '/api/reset' && request.method === 'POST') {
+             response = await handleResetRequest(request, env);
+        } else {
+            // Route not found or method not allowed
+            console.warn(`No matching route found for ${request.method} ${url.pathname}.`);
+            // Return JSON error with CORS headers
+            response = new Response(JSON.stringify({ error: 'API route not found' }), {
+                status: 404,
+                // Use global corsHeaders here too
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+
+        // Ensure we always have a Response object after the handler call
+        if (!(response instanceof Response)) {
+            console.error("Handler did not return a valid Response object. Assigning 500.");
+            // Return JSON error with CORS headers
+            response = new Response(JSON.stringify({ error: 'Internal Server Error: Invalid handler response' }), {
+                status: 500,
+                // Use global corsHeaders here too
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+
+    } catch (error) {
+        // Catch unexpected errors during request routing or handler execution itself
+        console.error('Error during request handling or handler execution:', error);
+        // Return JSON error with CORS headers
+        response = new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), {
             status: 500,
-            headers: { 'Content-Type': 'application/json' },
+            // Use global corsHeaders here too
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
     }
 
-  } catch (error) {
-    // Catch unexpected errors during request routing or handler execution itself
-    console.error('Error during request handling or handler execution:', error); // Keep critical error
-    response = new Response(JSON.stringify({ error: 'Internal Server Error', details: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
+    // --- Add/Merge CORS Headers to the final response ---
+    // Create new Headers object from the handler's response headers
+    const finalHeaders = new Headers(response.headers);
+    // Merge global CORS headers, potentially overwriting if already set by handler
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+        finalHeaders.set(key, value);
     });
-  }
 
-  // --- Add CORS Headers to the final response ---
-  const corsHeaders = {
-      'Access-Control-Allow-Origin': '*', // Consider restricting in production
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  };
-  const responseHeaders = new Headers(response.headers);
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-      responseHeaders.set(key, value);
-  });
-
-  // Return the final response
-  return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders
-  });
+    // Return the final response with the merged headers
+    return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: finalHeaders // Use the merged headers
+    });
 }
 
 /**
  * Handles CORS preflight requests (OPTIONS).
  */
 function handleOptions() {
+    // Specific headers for OPTIONS request, including Max-Age
     return new Response(null, {
-        status: 204,
+        status: 204, // No Content
         headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-            'Access-Control-Max-Age': '86400',
+            ...corsHeaders, // Include the base CORS headers
+            'Access-Control-Max-Age': '86400', // Cache preflight for 1 day
         },
     });
 }
@@ -102,25 +116,30 @@ function handleOptions() {
 async function handleLoginRequest(request, env) {
     console.log(`Handling login request from: ${request.headers.get('CF-Connecting-IP')}`);
     let loginCode;
+    // Define standard Content-Type header for JSON responses
+    const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
+
     try {
         const { code } = await request.json();
         loginCode = code; // Extract code from JSON body
 
         // Basic validation (redundant with frontend, but good practice)
         if (!/^\d{10}$/.test(loginCode)) {
-            console.warn(`Invalid code format received in login request: ${loginCode}`); // Log invalid format
+            console.warn(`Invalid code format received in login request: ${loginCode}`);
+            // Use jsonHeaders
             return new Response(JSON.stringify({ success: false, error: '无效的登录码格式' }), {
-                status: 400, // Bad Request
-                headers: corsHeaders, // Apply CORS headers
+                status: 400,
+                headers: jsonHeaders,
             });
         }
         console.log(`Received valid format login code: ${loginCode}`); // Log valid format receipt
 
     } catch (error) {
-        console.error('Error parsing login request body:', error); // Log parsing error
+        console.error('Error parsing login request body:', error);
+        // Use jsonHeaders
         return new Response(JSON.stringify({ success: false, error: '无效的请求体' }), {
-            status: 400, // Bad Request
-            headers: corsHeaders, // Apply CORS headers
+            status: 400,
+            headers: jsonHeaders,
         });
     }
 
@@ -145,9 +164,10 @@ async function handleLoginRequest(request, env) {
             // --- Save the newly created initial state back to KV ---
             await env.KV_NAMESPACE.put(loginCode, JSON.stringify(initialState));
             console.log(`Initial state for ${loginCode} saved to KV.`); // Log state save
+            // Use jsonHeaders
             return new Response(JSON.stringify({ success: true, message: '登录成功，状态已初始化' }), {
                 status: 200,
-                headers: corsHeaders, // Apply CORS headers
+                headers: jsonHeaders,
             });
         } else {
             // --- Code found, try to parse existing state ---
@@ -161,7 +181,7 @@ async function handleLoginRequest(request, env) {
                     // State is valid and has conversation_history
                     return new Response(JSON.stringify({ success: true, message: '登录成功，状态已加载' }), {
                         status: 200,
-                        headers: corsHeaders, // Apply CORS headers
+                        headers: jsonHeaders,
                     });
                 } else {
                      // State is corrupted or old format (missing conversation_history or status)
@@ -180,7 +200,7 @@ async function handleLoginRequest(request, env) {
                      console.log(`Invalid state for ${loginCode} overwritten with initial state in KV.`); // Log overwrite
                      return new Response(JSON.stringify({ success: true, message: '登录成功，状态已重置' }), {
                           status: 200,
-                          headers: corsHeaders, // Apply CORS headers
+                          headers: jsonHeaders,
                      });
                 }
             } catch (parseError) {
@@ -200,15 +220,16 @@ async function handleLoginRequest(request, env) {
                 console.log(`Corrupted state for ${loginCode} overwritten with initial state in KV.`); // Log overwrite
                 return new Response(JSON.stringify({ success: true, message: '登录成功，状态已重置' }), {
                     status: 200,
-                    headers: corsHeaders, // Apply CORS headers
+                    headers: jsonHeaders,
                 });
             }
         }
     } catch (kvError) {
-        console.error(`KV operation failed for code ${loginCode}:`, kvError); // Log KV error
+        console.error(`KV operation failed for code ${loginCode}:`, kvError);
+        // Use jsonHeaders
         return new Response(JSON.stringify({ success: false, error: '无法访问状态存储' }), {
-            status: 500, // Internal Server Error
-            headers: corsHeaders, // Apply CORS headers
+            status: 500,
+            headers: jsonHeaders,
         });
     }
 }
@@ -235,7 +256,7 @@ async function handleChatRequest(request, env) {
         console.log(`Chat request received for code ${requestPayload.code}`);
     } catch (error) {
         console.error('Error parsing chat request body:', error);
-        return new Response(JSON.stringify({ error: '无效的请求体' }), { status: 400, headers: corsHeaders });
+        return new Response(JSON.stringify({ error: '无效的请求体' }), { status: 400, headers: jsonHeaders });
     }
 
     const { message: userMessage, code: loginCode } = requestPayload;
@@ -247,7 +268,7 @@ async function handleChatRequest(request, env) {
 
         if (!storedStateString) {
             console.error(`No state found in KV for code ${loginCode}. User might not be logged in properly.`);
-            return new Response(JSON.stringify({ error: '未找到会话状态，请尝试重新登录' }), { status: 404, headers: corsHeaders });
+            return new Response(JSON.stringify({ error: '未找到会话状态，请尝试重新登录' }), { status: 404, headers: jsonHeaders });
         }
 
         let currentState;
@@ -261,7 +282,7 @@ async function handleChatRequest(request, env) {
             console.log(`State for ${loginCode} loaded. Current status: ${currentState.status}`);
         } catch (parseError) {
             console.error(`Error parsing stored state for ${loginCode} during chat:`, parseError);
-            return new Response(JSON.stringify({ error: '无法解析会话状态' }), { status: 500, headers: corsHeaders });
+            return new Response(JSON.stringify({ error: '无法解析会话状态' }), { status: 500, headers: jsonHeaders });
         }
 
         // --- 2. Append User Message to History ---
@@ -482,5 +503,3 @@ async function handleResetRequest(request, env) {
         });
     }
 }
-
-// --- Main Request Handler (保留最开始的 onRequest 定义即可) ---
