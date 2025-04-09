@@ -271,6 +271,15 @@ async function handleChatRequest(request, env) {
     let aiReply = "";
     let stateChanged = false;
     
+    // 初始化消息数组，始终包含系统提示
+    messages.push({ role: "system", content: systemPrompt });
+    
+    // 添加相关的对话历史记录到消息数组
+    // 确保 conversation_history 存在
+    if (!currentState.conversation_history) {
+      currentState.conversation_history = [];
+    }
+    
     // 根据当前状态处理用户输入
     switch (currentState.status) {
       case 'AWAITING_INITIAL_INPUT':
@@ -307,20 +316,50 @@ async function handleChatRequest(request, env) {
           
           // 构建生成第一章内容的提示
           systemPrompt = "你是一个AI写作助手，负责根据已批准的大纲生成特定章节的内容。";
+          
+          // 添加相关历史记录：初始需求和大纲生成过程
           messages = [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: `已批准的大纲如下：\n\`\`\`\n${currentState.approved_outline}\n\`\`\`\n\n请生成第 ${currentState.current_chapter_index + 1} 章的完整内容。` }
+            { role: "system", content: systemPrompt }
           ];
+          
+          // 添加初始需求和大纲相关的历史记录
+          const relevantHistory = currentState.conversation_history.filter(msg => 
+            msg.content.includes(currentState.initial_requirements) || 
+            msg.content.includes(currentState.outline)
+          );
+          
+          // 如果有相关历史，添加到消息中
+          if (relevantHistory.length > 0) {
+            messages = messages.concat(relevantHistory);
+          }
+          
+          // 添加当前用户确认指令和生成章节的请求
+          messages.push({ role: "user", content: `已批准的大纲如下：\n\`\`\`\n${currentState.approved_outline}\n\`\`\`\n\n请生成第 ${currentState.current_chapter_index + 1} 章的完整内容。` });
         } else { // 用户提供了修改建议，重新生成大纲
           // 将用户的反馈视为对大纲的修改建议
           currentState.status = 'GENERATING_OUTLINE';
           stateChanged = true;
           
           systemPrompt = "你是一个AI助手，负责根据用户的初始需求和修改建议生成改进的内容大纲。请以Markdown格式输出大纲。";
+          
+          // 添加相关历史记录：初始需求和大纲生成过程
           messages = [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: `初始需求：\n${currentState.initial_requirements}\n\n原始大纲：\n${currentState.outline}\n\n修改建议：\n${userMessage}\n\n请生成修改后的大纲。` }
+            { role: "system", content: systemPrompt }
           ];
+          
+          // 查找初始需求和最近的大纲相关消息
+          const outlineHistory = currentState.conversation_history.filter(msg => 
+            msg.content.includes(currentState.initial_requirements) || 
+            msg.content.includes(currentState.outline)
+          );
+          
+          // 如果有相关历史，添加到消息中
+          if (outlineHistory.length > 0) {
+            messages = messages.concat(outlineHistory);
+          }
+          
+          // 添加当前用户的修改建议
+          messages.push({ role: "user", content: `初始需求：\n${currentState.initial_requirements}\n\n原始大纲：\n${currentState.outline}\n\n修改建议：\n${userMessage}\n\n请生成修改后的大纲。` });
         }
         break;
         
@@ -366,10 +405,26 @@ async function handleChatRequest(request, env) {
             stateChanged = true;
             
             systemPrompt = "你是一个AI写作助手，负责根据已批准的大纲生成特定章节的内容。";
+            
+            // 构建消息数组，包含系统提示
             messages = [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: `已批准的大纲如下：\n\`\`\`\n${currentState.approved_outline}\n\`\`\`\n\n请生成第 ${currentState.current_chapter_index + 1} 章的完整内容。` }
+              { role: "system", content: systemPrompt }
             ];
+            
+            // 添加大纲和前一章相关的历史记录
+            const chapterHistory = currentState.conversation_history.filter(msg => 
+              msg.content.includes(currentState.approved_outline) || 
+              (currentState.confirmed_chapters.length > 0 && 
+               msg.content.includes(currentState.confirmed_chapters[currentState.confirmed_chapters.length - 1].content))
+            );
+            
+            // 如果有相关历史，添加到消息中
+            if (chapterHistory.length > 0) {
+              messages = messages.concat(chapterHistory.slice(-4)); // 只取最近的几条相关历史
+            }
+            
+            // 添加当前用户确认指令和生成下一章的请求
+            messages.push({ role: "user", content: `已批准的大纲如下：\n\`\`\`\n${currentState.approved_outline}\n\`\`\`\n\n请生成第 ${currentState.current_chapter_index + 1} 章的完整内容。` });
           }
         } else { // 用户提供了修改建议，重新生成当前章节
           // 将用户的反馈视为对当前章节的修改建议
@@ -377,13 +432,28 @@ async function handleChatRequest(request, env) {
           stateChanged = true;
           
           systemPrompt = "你是一个AI写作助手，负责根据用户的修改建议调整章节内容。";
+          
+          // 构建消息数组，包含系统提示
           messages = [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: `大纲：\n${currentState.approved_outline}\n\n原始第${currentState.current_chapter_index + 1}章内容：\n${currentState.last_chapter_content || "无原始内容"}\n\n修改建议：\n${userMessage}\n\n请生成修改后的第${currentState.current_chapter_index + 1}章内容。` }
+            { role: "system", content: systemPrompt }
           ];
+          
+          // 添加大纲和当前章节相关的历史记录
+          const chapterFeedbackHistory = currentState.conversation_history.filter(msg => 
+            msg.content.includes(currentState.approved_outline) || 
+            (currentState.last_chapter_content && msg.content.includes(currentState.last_chapter_content))
+          );
+          
+          // 如果有相关历史，添加到消息中
+          if (chapterFeedbackHistory.length > 0) {
+            messages = messages.concat(chapterFeedbackHistory.slice(-4)); // 只取最近的几条相关历史
+          }
+          
+          // 添加当前用户的修改建议
+          messages.push({ role: "user", content: `大纲：\n${currentState.approved_outline}\n\n原始第${currentState.current_chapter_index + 1}章内容：\n${currentState.last_chapter_content || "无原始内容"}\n\n修改建议：\n${userMessage}\n\n请生成修改后的第${currentState.current_chapter_index + 1}章内容。` });
         }
         break;
-        
+
       case 'GENERATING_CHAPTER':
         // 这是一个中间状态，通常不会直接进入
         aiReply = `正在生成第 ${currentState.current_chapter_index + 1} 章内容，请稍候...`;
