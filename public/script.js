@@ -352,52 +352,63 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     /**
      * Handles the "New Chat" button click.
-     * Clears the chat window and resets the state on the server.
+     * Clears the chat window, resets the application state, AND calls the backend to reset KV state.
      */
-    async function handleNewChat() {
-        const loginCode = localStorage.getItem('loginCode');
-        if (!loginCode) {
-            displayMessage("系统", "请先登录后再开始新对话。");
+    async function handleNewChat() { // {{ 编辑 1: 将函数改为 async }}
+        if (!isLoggedIn || !userLoginCode) {
+            displayInfoMessage("请先成功登录。");
             return;
         }
 
-        // {{ 编辑 1: 调用后端 /api/reset 接口 }}
+        // 禁用按钮防止重复点击
+        newChatButton.disabled = true;
+        displayInfoMessage("正在重置会话状态..."); // 提供即时反馈
+
         try {
+            // {{ 编辑 2: 调用后端 /api/reset 端点 }}
             const response = await fetch('/api/reset', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ code: loginCode }),
+                body: JSON.stringify({ code: userLoginCode }), // 发送当前用户的登录码
             });
 
-            const data = await response.json();
+            const result = await response.json(); // 尝试解析响应
 
-            if (response.ok && data.success) {
-                // 后端重置成功，清空前端界面
-                chatWindow.innerHTML = '';
-                displayMessage("系统", "状态已重置。您可以开始新的写作项目了。");
-                // 重置后通常会回到等待初始输入的状态
-                // 可选: 根据需要更新输入框提示
-                 updateInputPlaceholder({ status: 'AWAITING_INITIAL_INPUT' }); 
-                 userInput.disabled = false; // 确保输入框可用
-            } else {
-                // 后端重置失败
-                console.error('Failed to reset state on server:', data.error || 'Unknown error');
-                displayMessage("系统", `重置状态失败：${data.error || '请稍后再试。'}`);
+            if (!response.ok || !result.success) {
+                 // 如果后端重置失败，显示错误信息并且不清除前端
+                 console.error('Failed to reset backend state:', result);
+                 displayInfoMessage(`重置会话失败: ${result.error || '未知错误'}`);
+                 // 不进行前端清理，让用户可以重试或继续当前会话
+                 return; // 停止执行
             }
+
+            // {{ 编辑 3: 后端重置成功后，才清理前端 }}
+            // Clear the chat display window
+            chatWindow.innerHTML = '';
+            // Clear the message input field
+            messageInput.value = '';
+            // Reset the internal application state tracker
+            currentAppState = null; // Or reset to initial state if needed by UI logic
+            // Display a confirmation message
+            displayInfoMessage("新的对话已开始。请描述您的需求。");
+            // Reset the input placeholder based on the (now reset) state
+            updateInputPlaceholder(); // 确保占位符更新
+             // Enable chat input
+            setChatEnabled(true);
+
+
         } catch (error) {
-            console.error('Error calling reset API:', error);
-            displayMessage("系统", "无法连接到服务器以重置状态，请检查网络连接。");
+            console.error('Error during new chat creation:', error);
+            displayInfoMessage(`创建新对话时出错: ${error.message}`);
+        } finally {
+            // 无论成功或失败，重新启用按钮
+             newChatButton.disabled = false;
         }
     }
 
     // --- Event Listeners ---
-    // {{ 编辑 2: 确保 "New Chat" 按钮调用 handleNewChat }}
-    if (newChatButton) {
-        newChatButton.addEventListener('click', handleNewChat);
-    }
-
     loginButton.addEventListener('click', handleLogin);
     loginCodeInput.addEventListener('keypress', (event) => {
         if (event.key === 'Enter') {
