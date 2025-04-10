@@ -248,6 +248,10 @@ async function handleLoginRequest(request, env) {
 async function handleChatRequest(request, env) {
     console.log(`Handling chat request from: ${request.headers.get('CF-Connecting-IP')}`);
     let requestPayload;
+    // Define standard Content-Type header for JSON responses inside this function scope
+    // Note: Ensure corsHeaders is accessible (defined globally or passed).
+    const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
+
     try {
         requestPayload = await request.json();
         if (!requestPayload.code || !requestPayload.message) {
@@ -256,6 +260,7 @@ async function handleChatRequest(request, env) {
         console.log(`Chat request received for code ${requestPayload.code}`);
     } catch (error) {
         console.error('Error parsing chat request body:', error);
+        // Use local jsonHeaders
         return new Response(JSON.stringify({ error: '无效的请求体' }), { status: 400, headers: jsonHeaders });
     }
 
@@ -268,13 +273,13 @@ async function handleChatRequest(request, env) {
 
         if (!storedStateString) {
             console.error(`No state found in KV for code ${loginCode}. User might not be logged in properly.`);
+            // Use local jsonHeaders
             return new Response(JSON.stringify({ error: '未找到会话状态，请尝试重新登录' }), { status: 404, headers: jsonHeaders });
         }
 
         let currentState;
         try {
             currentState = JSON.parse(storedStateString);
-            // Ensure conversation_history exists and is an array (redundant check, belt-and-suspenders)
             if (!Array.isArray(currentState.conversation_history)) {
                  console.warn(`conversation_history missing or not an array for ${loginCode}. Initializing.`);
                  currentState.conversation_history = [];
@@ -282,6 +287,7 @@ async function handleChatRequest(request, env) {
             console.log(`State for ${loginCode} loaded. Current status: ${currentState.status}`);
         } catch (parseError) {
             console.error(`Error parsing stored state for ${loginCode} during chat:`, parseError);
+             // Use local jsonHeaders
             return new Response(JSON.stringify({ error: '无法解析会话状态' }), { status: 500, headers: jsonHeaders });
         }
 
@@ -289,76 +295,75 @@ async function handleChatRequest(request, env) {
         currentState.conversation_history.push({ role: 'user', content: userMessage });
         console.log(`Appended user message to history. History length: ${currentState.conversation_history.length}`);
 
-
         let aiReply = null; // Initialize AI reply variable
 
         // --- 3. Determine Action based on State & Potentially Call LLM ---
 
-        const systemPrompt = { role: 'system', content: `${env.SYSTEM_PROMPT}\n当前状态: ${currentState.status}` };
-        const llmMessages = [ systemPrompt, ...currentState.conversation_history ]; // Default to full history
+        // {{** EDIT 1: Update System Prompt construction to use base + status **}}
+        const systemPromptBase = env.SYSTEM_PROMPT; // Get base prompt from env
+        const systemPrompt = { role: 'system', content: `${systemPromptBase}\n当前状态: ${currentState.status}` };
+        // Use the updated conversation history after appending the user message
+        const llmMessages = [ systemPrompt, ...currentState.conversation_history ];
 
-        // --- State Machine Logic ---
-        if (currentState.status === 'AWAITING_INITIAL_INPUT') {
-            // First user message after login/reset
+        // --- State Machine Logic (IF statements for status transitions) ---
+        // (The logic for checking status like AWAITING_INITIAL_INPUT, AWAITING_OUTLINE_APPROVAL,
+        // AWAITING_CHAPTER_FEEDBACK and updating currentState.status, current_chapter_index etc.
+        // based on userMessage should remain here as it was before this edit,
+        // setting the stage *before* the LLM call is decided.)
+        // Example structure (assuming it exists):
+         if (currentState.status === 'AWAITING_INITIAL_INPUT') {
             currentState.status = 'GENERATING_OUTLINE';
-            // Optional: Add a specific instruction for outline generation
-            // llmMessages.push({ role: "user", content: "根据以上需求，生成论文大纲。" });
             console.log(`Status -> GENERATING_OUTLINE`);
-        } else if (currentState.status === 'AWAITING_OUTLINE_APPROVAL') {
-            if (userMessage.trim().toUpperCase() === 'C') {
-                // User confirmed outline
-                currentState.status = 'GENERATING_CHAPTER';
-                currentState.current_chapter_index = 0; // Start with the first chapter
-                // Optional: Add instruction for generating the first chapter
-                // llmMessages.push({ role: "user", content: "大纲已确认。现在请根据大纲生成第 1 章内容。" });
-                console.log(`Outline approved. Status -> GENERATING_CHAPTER, Index -> 0`);
-            } else {
-                // User provided feedback/modification for outline
-                currentState.status = 'GENERATING_OUTLINE'; // Go back to generate outline again
-                // Optional: Add instruction to revise outline based on feedback
-                // llmMessages.push({ role: "user", content: "请根据以上反馈修改大纲。" });
-                console.log(`Outline feedback received. Status -> GENERATING_OUTLINE`);
-            }
-        } else if (currentState.status === 'AWAITING_CHAPTER_FEEDBACK') {
-             const chapterNum = currentState.current_chapter_index + 1;
-            if (userMessage.trim().toUpperCase() === 'C') {
-                // User confirmed current chapter
-                currentState.confirmed_chapters.push({
-                    index: currentState.current_chapter_index,
-                    content: currentState.last_chapter_content || "内容未记录" // Store the *last* AI reply as chapter content
-                });
-                currentState.current_chapter_index++;
-                console.log(`Chapter ${chapterNum} approved. Saved. Index -> ${currentState.current_chapter_index}`);
+         } else if (currentState.status === 'AWAITING_OUTLINE_APPROVAL') {
+             if (userMessage.trim().toUpperCase() === 'C') {
+                 currentState.status = 'GENERATING_CHAPTER';
+                 currentState.current_chapter_index = 0;
+                 console.log(`Outline approved. Status -> GENERATING_CHAPTER, Index -> 0`);
+             } else {
+                 currentState.status = 'GENERATING_OUTLINE';
+                 console.log(`Outline feedback received. Status -> GENERATING_OUTLINE`);
+             }
+         } else if (currentState.status === 'AWAITING_CHAPTER_FEEDBACK') {
+              const chapterNum = currentState.current_chapter_index + 1;
+              if (userMessage.trim().toUpperCase() === 'C') {
+                  // ... (save chapter, increment index, check completion) ...
+                  currentState.confirmed_chapters.push({
+                      index: currentState.current_chapter_index,
+                      content: currentState.last_chapter_content || "内容未记录"
+                  });
+                  currentState.current_chapter_index++;
+                  console.log(`Chapter ${chapterNum} approved. Saved. Index -> ${currentState.current_chapter_index}`);
+                  // ... (estimate chapters if needed) ...
+                  if (currentState.approved_outline && !currentState.estimated_chapters) {
+                      const outlineLines = currentState.approved_outline.split('\n').filter(line => line.trim().length > 0);
+                      currentState.estimated_chapters = Math.max(Math.floor(outlineLines.length / 2), 1);
+                      console.log(`Estimated chapters based on outline: ${currentState.estimated_chapters}`);
+                  }
+                  // ... (check completion) ...
+                  if (currentState.estimated_chapters && currentState.current_chapter_index >= currentState.estimated_chapters) {
+                       currentState.status = 'COMPLETED';
+                       console.log(`All estimated chapters completed. Status -> COMPLETED`);
+                       aiReply = "所有章节已根据大纲完成。流程结束。"; // Set completion reply
+                  } else {
+                      currentState.status = 'GENERATING_CHAPTER';
+                      console.log(`Status -> GENERATING_CHAPTER for index ${currentState.current_chapter_index}`);
+                  }
+              } else {
+                  currentState.status = 'GENERATING_CHAPTER'; // Regenerate same chapter
+                  console.log(`Chapter ${chapterNum} feedback received. Regenerating. Status -> GENERATING_CHAPTER`);
+              }
+         }
+        // End of state machine logic structure example
 
-                // Estimate total chapters based on outline (if available)
-                if (currentState.approved_outline && !currentState.estimated_chapters) {
-                     const outlineLines = currentState.approved_outline.split('\n').filter(line => line.trim().length > 0);
-                     currentState.estimated_chapters = Math.max(Math.floor(outlineLines.length / 2), 1); // Basic estimation, ensure at least 1
-                     console.log(`Estimated chapters based on outline: ${currentState.estimated_chapters}`);
-                }
 
-                // Check if completed
-                if (currentState.estimated_chapters && currentState.current_chapter_index >= currentState.estimated_chapters) {
-                    currentState.status = 'COMPLETED';
-                    console.log(`All estimated chapters completed. Status -> COMPLETED`);
-                    // Don't call LLM, maybe send a completion message?
-                    aiReply = "所有章节已根据大纲完成。流程结束。";
-                } else {
-                    currentState.status = 'GENERATING_CHAPTER'; // Proceed to next chapter
-                    // Optional: Add instruction for the next chapter
-                    // llmMessages.push({ role: "user", content: `第 ${chapterNum} 章已确认。现在请生成第 ${currentState.current_chapter_index + 1} 章内容。`});
-                    console.log(`Status -> GENERATING_CHAPTER for index ${currentState.current_chapter_index}`);
-                }
-            } else {
-                // User provided feedback/modification for chapter
-                currentState.status = 'GENERATING_CHAPTER'; // Regenerate the *same* chapter
-                // Optional: Add instruction to revise chapter based on feedback
-                // llmMessages.push({ role: "user", content: `请根据以上反馈修改第 ${chapterNum} 章内容。` });
-                console.log(`Chapter ${chapterNum} feedback received. Regenerating. Status -> GENERATING_CHAPTER`);
-            }
-        }
-        // Handle GENERATING states - they require an LLM call
-        if (currentState.status === 'GENERATING_OUTLINE' || currentState.status === 'GENERATING_CHAPTER') {
+        // Handle CANCELED/COMPLETED states where no LLM call is needed
+        if (currentState.status === 'COMPLETED') {
+            // aiReply might have been set already in the state machine
+              if (aiReply === null) { // If not set previously
+                 aiReply = "流程已完成。";
+              }
+        } else if (currentState.status === 'GENERATING_OUTLINE' || currentState.status === 'GENERATING_CHAPTER') {
+            // --- Call LLM ---
             console.log(`Calling LLM API. Endpoint: ${env.API_ENDPOINT}, Model: ${env.LLM_MODEL}`);
             try {
                  const llmResponse = await fetch(`${env.API_ENDPOINT}/chat/completions`, {
@@ -369,8 +374,8 @@ async function handleChatRequest(request, env) {
                     },
                     body: JSON.stringify({
                         model: env.LLM_MODEL,
-                        messages: llmMessages, // <<< Pass the full history + system prompt
-                        stream: false // Assuming non-streaming for now
+                        messages: llmMessages, // Use the messages array built earlier
+                        stream: false
                     }),
                 });
 
@@ -386,64 +391,76 @@ async function handleChatRequest(request, env) {
                     throw new Error("无效的 LLM 响应");
                 }
 
+                // {{** EDIT 2: Directly use LLM output, assuming Prompt enforces Markdown **}}
                 aiReply = llmData.choices[0].message.content.trim();
-                console.log("LLM processing successful.");
+                if (!aiReply) {
+                    console.warn("LLM returned an empty reply.");
+                    aiReply = "(AI 未返回有效内容)";
+                }
+                console.log("LLM processing successful (assuming Markdown format).");
 
                 // --- Update State based on LLM response ---
                 if (currentState.status === 'GENERATING_OUTLINE') {
-                    currentState.approved_outline = aiReply; // Store the generated outline
-                    currentState.status = 'AWAITING_OUTLINE_APPROVAL'; // Move to approval state
+                    // {{** EDIT 3: Store the assumed Markdown outline directly **}}
+                    currentState.approved_outline = aiReply;
+                    currentState.status = 'AWAITING_OUTLINE_APPROVAL';
                     console.log(`Outline generated. Status -> AWAITING_OUTLINE_APPROVAL`);
                 } else if (currentState.status === 'GENERATING_CHAPTER') {
-                     currentState.last_chapter_content = aiReply; // Store the generated chapter content temporarily
-                    currentState.status = 'AWAITING_CHAPTER_FEEDBACK'; // Move to feedback state
+                     // {{** EDIT 4: Store the assumed Markdown chapter content directly **}}
+                     currentState.last_chapter_content = aiReply;
+                    currentState.status = 'AWAITING_CHAPTER_FEEDBACK';
                     console.log(`Chapter ${currentState.current_chapter_index + 1} generated. Status -> AWAITING_CHAPTER_FEEDBACK`);
                 }
 
             } catch (llmError) {
                 console.error('Error during LLM API call:', llmError);
-                // Keep state as GENERATING but return error message
                 aiReply = `抱歉，在调用 AI 服务时出错: ${llmError.message}`;
-                // Don't change status, allow retry maybe? Or revert status? For now, return error message.
+                // Consider reverting state if LLM fails? Or keep it as GENERATING?
+                // If keeping GENERATING, the next user message might retry.
+                // If reverting, need to decide which state to revert to (e.g., AWAITING_INITIAL_INPUT).
+                // For now, keeps state, returns error message.
             }
-        }
+        } // End LLM call block
 
         // --- 4. Append AI Reply to History (if applicable) ---
-        // Only append if we actually got a reply (either from LLM or a canned response like "COMPLETED")
         if (aiReply !== null) {
+           // Only append if we actually got a reply (from LLM or canned response like "COMPLETED")
            currentState.conversation_history.push({ role: 'assistant', content: aiReply });
            console.log(`Appended assistant message to history. History length: ${currentState.conversation_history.length}`);
-        } else if (currentState.status !== 'COMPLETED' && currentState.status !== 'AWAITING_INITIAL_INPUT') {
-            // Handle cases where no AI reply was generated but maybe should have?
+        } else if (currentState.status !== 'AWAITING_INITIAL_INPUT') {
+            // Handle unexpected cases where no reply was generated but status indicates one was expected
             console.warn(`Reached end of chat handler for status ${currentState.status} without generating an AI reply.`);
-            aiReply = "内部状态错误，未生成回复。"; // Default error message
+            aiReply = "内部处理错误，未能生成回复。"; // Provide a default error message
             currentState.conversation_history.push({ role: 'assistant', content: aiReply });
         }
 
-
         // --- 5. Save Updated State & History Back to KV ---
+        // Ensure state is always saved, even if aiReply is null (e.g., user just gave input)
         console.log(`Saving updated state for ${loginCode} to KV. Status: ${currentState.status}`);
         await env.KV_NAMESPACE.put(loginCode, JSON.stringify(currentState));
         console.log(`State for ${loginCode} successfully saved.`);
 
         // --- 6. Return Response to Frontend ---
+        // {{** EDIT 5: Simplify the response structure **}}
         return new Response(JSON.stringify({
-            reply: aiReply, // The AI's response message
-            state: { // Send back the relevant parts of the state for UI updates
+            reply: aiReply, // Send the generated AI reply (or null if none)
+            state: {
                 status: currentState.status,
                 current_chapter_index: currentState.current_chapter_index
-                // Add other fields if the frontend needs them (e.g., estimated_chapters)
             }
         }), {
             status: 200,
-            headers: corsHeaders
+            // {{** EDIT 6: Use jsonHeaders defined at the start of this function **}}
+            headers: jsonHeaders // Use local jsonHeaders (contains CORS + Content-Type)
         });
 
     } catch (error) {
         console.error(`Unhandled error in handleChatRequest for code ${loginCode}:`, error);
+        // {{** EDIT 7: Ensure error responses also use local jsonHeaders **}}
+        // Use local jsonHeaders (contains CORS + Content-Type)
         return new Response(JSON.stringify({ error: `服务器内部错误: ${error.message}` }), {
-            status: 500, // Internal Server Error
-            headers: corsHeaders // 使用文件顶部定义的 corsHeaders
+            status: 500,
+            headers: jsonHeaders
         });
     }
 }

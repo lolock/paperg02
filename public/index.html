@@ -1,48 +1,14 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head>
+  <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 对话助手</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-      /* 引入 Lucide Icons 字体 */
-      @font-face {
-        font-family: 'LucideIcons';
-        /* 正确地通过 CSS 加载字体文件 */
-        src: url('https://cdn.jsdelivr.net/npm/lucide-static@latest/font/Lucide.ttf') format('truetype');
-      }
-      /* 基本样式 */
-      body {
-        font-family: 'Inter', sans-serif; /* 使用 Inter 字体 */
-        display: flex;
-        height: 100vh;
-        margin: 0;
-        background-color: #f3f4f6; /* Tailwind gray-100 */
-      }
-      .icon {
-        font-family: 'LucideIcons';
-        font-size: 1.25rem; /* 图标大小 */
-      }
-      /* 增加滚动条美化 (可选) */
-      ::-webkit-scrollbar {
-        width: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #f1f1f1;
-        border-radius: 10px;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #888;
-        border-radius: 10px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #555;
-      }
-    </style>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>论文写作助手</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css"> <!-- If you have custom styles -->
+    <!-- {{** ADDED: Marked and DOMPurify libraries **}} -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script> <!-- Use latest DOMPurify -->
 </head>
 <body class="flex h-screen bg-gray-100">
 

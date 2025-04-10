@@ -35,35 +35,27 @@ document.addEventListener('DOMContentLoaded', () => {
     function displayMessage(text, sender, elementId = null) {
         const messageElement = document.createElement('div');
         if (elementId) {
-            messageElement.id = elementId; // Assign ID if provided
+            messageElement.id = elementId;
         }
-        // Added 'message-bubble' class for potential future styling/selection
         messageElement.classList.add('mb-4', 'p-3', 'rounded-lg', 'max-w-xl', 'w-fit', 'text-sm', 'md:text-base', 'message-bubble');
 
-        let contentContainer = document.createElement('div'); // Container for content
+        let contentContainer = document.createElement('div');
 
         if (sender === 'user') {
             messageElement.classList.add('bg-indigo-500', 'text-white', 'ml-auto', 'rounded-br-none');
             contentContainer.textContent = text;
         } else if (sender === 'ai') {
             messageElement.classList.add('bg-gray-200', 'text-gray-800', 'mr-auto', 'rounded-bl-none');
-            // Basic Markdown support
-            text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>'); // Bold
-            text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');       // Italics
-            text = text.replace(/`(.*?)`/g, '<code class="bg-gray-300 px-1 rounded text-sm">$1</code>'); // Inline code
-             // Handle potential multi-line code blocks (very basic)
-             text = text.replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-800 text-white p-2 rounded text-sm overflow-x-auto"><code>$1</code></pre>');
-             // Handle newlines properly for HTML display
-             text = text.replace(/\n/g, '<br>');
-            contentContainer.innerHTML = text; // Use innerHTML for AI messages to render markdown
+            // 使用 marked 和 DOMPurify 渲染 Markdown
+            const renderedContent = DOMPurify.sanitize(marked.parse(text));
+            contentContainer.innerHTML = renderedContent;
         } else { // 'system'
-             messageElement.classList.add('bg-yellow-100', 'text-yellow-800', 'text-center', 'mx-auto', 'text-xs', 'italic');
-             contentContainer.textContent = text;
+            messageElement.classList.add('bg-yellow-100', 'text-yellow-800', 'text-center', 'mx-auto', 'text-xs', 'italic');
+            contentContainer.textContent = text;
         }
 
         messageElement.appendChild(contentContainer);
         chatWindow.appendChild(messageElement);
-        // Scroll to the bottom of the chat window to show the latest message
         chatWindow.scrollTop = chatWindow.scrollHeight;
     }
 
@@ -75,20 +67,13 @@ document.addEventListener('DOMContentLoaded', () => {
      function updateMessage(elementId, newText) {
         const messageElement = document.getElementById(elementId);
         if (messageElement) {
-            // Apply the same basic Markdown rendering as displayMessage for 'ai'
-            newText = newText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            newText = newText.replace(/\*(.*?)\*/g, '<em>$1</em>');
-            newText = newText.replace(/`(.*?)`/g, '<code class="bg-gray-300 px-1 rounded text-sm">$1</code>');
-            newText = newText.replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-800 text-white p-2 rounded text-sm overflow-x-auto"><code>$1</code></pre>');
-            newText = newText.replace(/\n/g, '<br>');
-            // Update the inner container's HTML
+            // 使用 marked 和 DOMPurify 渲染 Markdown
+            const renderedContent = DOMPurify.sanitize(marked.parse(newText));
             const contentContainer = messageElement.querySelector('div');
             if(contentContainer) {
-                contentContainer.innerHTML = newText;
+                contentContainer.innerHTML = renderedContent;
             }
-             // Remove temporary styling like italics if it was applied
-             messageElement.classList.remove('italic', 'text-gray-500');
-            // Ensure chat scrolls down after update
+            messageElement.classList.remove('italic', 'text-gray-500');
             chatWindow.scrollTop = chatWindow.scrollHeight;
         }
      }
@@ -266,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Handle completed state
                 if (currentAppState && currentAppState.status === 'COMPLETED') {
-                   displayInfoMessage("流程已完成。您可以点击“新聊天”开始新的项目。");
+                   displayInfoMessage("流程已完成。您可以点击'新聊天'开始新的项目。");
                    setChatEnabled(false); // Disable input after completion
                    messageInput.placeholder = "流程已完成";
                 }
