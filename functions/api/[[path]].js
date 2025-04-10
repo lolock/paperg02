@@ -323,53 +323,50 @@ async function handleChatRequest(request, env, userCode) {
         const llmMessages = [ systemPrompt, ...currentState.conversation_history ];
 
         // --- State Machine Logic (IF statements for status transitions) ---
-        // (The logic for checking status like AWAITING_INITIAL_INPUT, AWAITING_OUTLINE_APPROVAL,
-        // AWAITING_CHAPTER_FEEDBACK and updating currentState.status, current_chapter_index etc.
-        // based on userMessage should remain here as it was before this edit,
-        // setting the stage *before* the LLM call is decided.)
-        // Example structure (assuming it exists):
-         if (currentState.status === 'AWAITING_INITIAL_INPUT') {
+        if (currentState.status === 'AWAITING_INITIAL_INPUT') {
             currentState.status = 'GENERATING_OUTLINE';
             console.log(`Status -> GENERATING_OUTLINE`);
-         } else if (currentState.status === 'AWAITING_OUTLINE_APPROVAL') {
-             if (userMessage.trim().toUpperCase() === 'C') {
-                 currentState.status = 'GENERATING_CHAPTER';
-                 currentState.current_chapter_index = 0;
-                 console.log(`Outline approved. Status -> GENERATING_CHAPTER, Index -> 0`);
-             } else {
-                 currentState.status = 'GENERATING_OUTLINE';
-                 console.log(`Outline feedback received. Status -> GENERATING_OUTLINE`);
-             }
-         } else if (currentState.status === 'AWAITING_CHAPTER_FEEDBACK') {
-              const chapterNum = currentState.current_chapter_index + 1;
-              if (userMessage.trim().toUpperCase() === 'C') {
-                  // ... (save chapter, increment index, check completion) ...
-                  currentState.confirmed_chapters.push({
-                      index: currentState.current_chapter_index,
-                      content: currentState.last_chapter_content || "内容未记录"
-                  });
-                  currentState.current_chapter_index++;
-                  console.log(`Chapter ${chapterNum} approved. Saved. Index -> ${currentState.current_chapter_index}`);
-                  // ... (estimate chapters if needed) ...
-                  if (currentState.approved_outline && !currentState.estimated_chapters) {
-                      const outlineLines = currentState.approved_outline.split('\n').filter(line => line.trim().length > 0);
-                      currentState.estimated_chapters = Math.max(Math.floor(outlineLines.length / 2), 1);
-                      console.log(`Estimated chapters based on outline: ${currentState.estimated_chapters}`);
-                  }
-                  // ... (check completion) ...
-                  if (currentState.estimated_chapters && currentState.current_chapter_index >= currentState.estimated_chapters) {
-                       currentState.status = 'COMPLETED';
-                       console.log(`All estimated chapters completed. Status -> COMPLETED`);
-                       aiReply = "所有章节已根据大纲完成。流程结束。"; // Set completion reply
-                  } else {
-                      currentState.status = 'GENERATING_CHAPTER';
-                      console.log(`Status -> GENERATING_CHAPTER for index ${currentState.current_chapter_index}`);
-                  }
-              } else {
-                  currentState.status = 'GENERATING_CHAPTER'; // Regenerate same chapter
-                  console.log(`Chapter ${chapterNum} feedback received. Regenerating. Status -> GENERATING_CHAPTER`);
-              }
-         }
+        } else if (currentState.status === 'AWAITING_OUTLINE_APPROVAL') {
+            // {{ 编辑 1: 将 'C' 的检查改为检查 '继续' }}
+            if (userMessage.trim() === '继续') { // 原为: userMessage.trim().toUpperCase() === 'C'
+                currentState.status = 'GENERATING_CHAPTER';
+                currentState.current_chapter_index = 0;
+                console.log(`Outline approved. Status -> GENERATING_CHAPTER, Index -> 0`);
+            } else {
+                currentState.status = 'GENERATING_OUTLINE';
+                console.log(`Outline feedback received. Status -> GENERATING_OUTLINE`);
+            }
+        } else if (currentState.status === 'AWAITING_CHAPTER_FEEDBACK') {
+            const chapterNum = currentState.current_chapter_index + 1;
+            // {{ 编辑 2: 将 'C' 的检查改为检查 '继续' }}
+            if (userMessage.trim() === '继续') { // 原为: userMessage.trim().toUpperCase() === 'C'
+                // ... (save chapter, increment index, check completion) ...
+                currentState.confirmed_chapters.push({
+                    index: currentState.current_chapter_index,
+                    content: currentState.last_chapter_content || "内容未记录"
+                });
+                currentState.current_chapter_index++;
+                console.log(`Chapter ${chapterNum} approved. Saved. Index -> ${currentState.current_chapter_index}`);
+                // ... (estimate chapters if needed) ...
+                if (currentState.approved_outline && !currentState.estimated_chapters) {
+                    const outlineLines = currentState.approved_outline.split('\n').filter(line => line.trim().length > 0);
+                    currentState.estimated_chapters = Math.max(Math.floor(outlineLines.length / 2), 1);
+                    console.log(`Estimated chapters based on outline: ${currentState.estimated_chapters}`);
+                }
+                // ... (check completion) ...
+                if (currentState.estimated_chapters && currentState.current_chapter_index >= currentState.estimated_chapters) {
+                     currentState.status = 'COMPLETED';
+                     console.log(`All estimated chapters completed. Status -> COMPLETED`);
+                     aiReply = "所有章节已根据大纲完成。流程结束。"; // Set completion reply
+                } else {
+                    currentState.status = 'GENERATING_CHAPTER';
+                    console.log(`Status -> GENERATING_CHAPTER for index ${currentState.current_chapter_index}`);
+                }
+            } else {
+                currentState.status = 'GENERATING_CHAPTER'; // Regenerate same chapter
+                console.log(`Chapter ${chapterNum} feedback received. Regenerating. Status -> GENERATING_CHAPTER`);
+            }
+        }
         // End of state machine logic structure example
 
 

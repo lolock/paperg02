@@ -309,12 +309,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!currentAppState || currentAppState.status === 'AWAITING_INITIAL_INPUT') {
             messageInput.placeholder = "请输入您的初始需求...";
         } else if (currentAppState.status === 'AWAITING_OUTLINE_APPROVAL') {
-            // {{ 编辑 1: 修改提示，移除 "输入 'C' 确认" 的明确指示 }}
-            messageInput.placeholder = "请检查大纲。您可以直接输入修改意见，或输入 'C' 表示确认。"; // 或者更简洁: "请输入对大纲的反馈或确认信息..."
+            // {{ 编辑 1: 更新大纲确认提示 }}
+            messageInput.placeholder = "请检查大纲。您可以直接输入修改意见，或输入“继续”开始生成章节。";
         } else if (currentAppState.status === 'AWAITING_CHAPTER_FEEDBACK') {
             const chapterNum = currentAppState.current_chapter_index !== null ? currentAppState.current_chapter_index + 1 : '?';
-            // {{ 编辑 3: 修改提示，移除 "输入 'C' 确认" 的明确指示 }}
-            messageInput.placeholder = `请检查第 ${chapterNum} 章。您可以直接输入修改意见，或输入 'C' 表示确认。`; // 或者更简洁: "请输入对章节内容的反馈或确认信息..."
+            // {{ 编辑 2: 更新章节确认提示 }}
+            messageInput.placeholder = `请检查第 ${chapterNum} 章。您可以直接输入修改意见，或输入“继续”生成下一章。`;
         } else if (currentAppState.status === 'GENERATING_OUTLINE' || currentAppState.status === 'GENERATING_CHAPTER') {
              messageInput.placeholder = "AI 正在处理，请稍候...";
         } else if (currentAppState.status === 'COMPLETED') {
