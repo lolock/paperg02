@@ -299,9 +299,26 @@ async function handleChatRequest(request, env, userCode) {
 
         // --- 3. Determine Action based on State & Potentially Call LLM ---
 
-        // {{** EDIT 1: Update System Prompt construction to use base + status **}}
-        const systemPromptBase = env.SYSTEM_PROMPT; // Get base prompt from env
-        const systemPrompt = { role: 'system', content: `${systemPromptBase}\n当前状态: ${currentState.status}` };
+        // {{ 编辑 1: 读取两个 Prompt (Secret 和 Plaintext 都可以通过 env 访问) }}
+        const paperSystemPrompt = env.PAPER_SYSTEM_PROMPT; // 从 Secret 读取
+        const generalSystemPrompt = env.SYSTEM_PROMPT;    // 从 Plaintext 读取
+
+        // {{ 编辑 2: 检查两个 Prompt 是否都已设置 }}
+        if (!paperSystemPrompt || !generalSystemPrompt) {
+            console.error("错误：PAPER_SYSTEM_PROMPT 或 SYSTEM_PROMPT 环境变量未设置。请在 Cloudflare Dashboard 或 wrangler.toml 中进行配置。");
+            // 根据需要返回错误，确保 jsonHeaders 在此作用域内可用
+            return new Response(JSON.stringify({ error: '服务器配置错误：必要的系统提示缺失' }), {
+                status: 500,
+                headers: jsonHeaders // 假设 jsonHeaders 已在此作用域定义
+            });
+        }
+
+        // {{ 编辑 3: 合并两个 Prompt 内容，可以调整顺序和分隔符 }}
+        // 这里将 PAPER_SYSTEM_PROMPT 放在前面，用分隔符区分
+        const combinedPromptContent = `${paperSystemPrompt}\n\n---\n\n${generalSystemPrompt}\n当前状态: ${currentState.status}`;
+
+        const systemPrompt = { role: 'system', content: combinedPromptContent };
+
         // Use the updated conversation history after appending the user message
         const llmMessages = [ systemPrompt, ...currentState.conversation_history ];
 
