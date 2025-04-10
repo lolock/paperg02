@@ -245,7 +245,7 @@ async function handleLoginRequest(request, env) {
  * Processes user messages based on the current state stored in KV.
  * Manages the conversation history and interacts with the LLM.
  */
-async function handleChatRequest(request, env) {
+async function handleChatRequest(request, env, userCode) {
     console.log(`Handling chat request from: ${request.headers.get('CF-Connecting-IP')}`);
     let requestPayload;
     // Define standard Content-Type header for JSON responses inside this function scope
