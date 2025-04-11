@@ -109,7 +109,8 @@ async function handleResetRequest(request, env) {
         const { code } = await request.json();
         loginCode = code;
 
-        if (!/^d{10}$/.test(loginCode)) {
+        // {{ EDIT 1: Correct the regular expression to check for 10 digits }}
+        if (!/^\d{10}$/.test(loginCode)) { // Use \d instead of d
             console.warn(`Invalid code format received in reset request: ${loginCode}`);
             return new Response(JSON.stringify({ success: false, error: '无效的登录码格式' }), {
                 status: 400,
