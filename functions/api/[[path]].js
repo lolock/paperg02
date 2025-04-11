@@ -467,54 +467,5 @@ async function handleChatRequest(request, env, userCode) {
  * Handles the /api/reset request.
  * Resets the state for the given code in KV_NAMESPACE back to initial values.
  */
-async function handleResetRequest(request, env) {
-    console.log(`Handling reset request from: ${request.headers.get('CF-Connecting-IP')}`);
-    let requestPayload;
-    try {
-        requestPayload = await request.json();
-        if (!requestPayload.code || !/^\d{10}$/.test(requestPayload.code)) {
-            throw new Error("Missing or invalid 'code' in request body");
-        }
-        console.log(`Reset request received for code ${requestPayload.code}`);
-    } catch (error) {
-        console.error('Error parsing reset request body:', error);
-        // 使用文件顶部定义的 corsHeaders
-        return new Response(JSON.stringify({ success: false, error: '无效的请求体或登录码' }), { status: 400, headers: corsHeaders });
-    }
 
-    const { code: loginCode } = requestPayload;
-
-    try {
-        // --- Define the Initial State ---
-        // Ensure this matches the initial state defined in handleLoginRequest
-        const initialState = {
-            status: 'AWAITING_INITIAL_INPUT',
-            current_chapter_index: null,
-            estimated_chapters: null,
-            approved_outline: null,
-            confirmed_chapters: [],
-            conversation_history: [], // <<<< Crucial: Reset history to empty array
-            last_chapter_content: null
-        };
-
-        // --- Overwrite the state in KV with the initial state ---
-        console.log(`Resetting state for ${loginCode} in KV...`);
-        await env.KV_NAMESPACE.put(loginCode, JSON.stringify(initialState));
-        console.log(`State for ${loginCode} successfully reset in KV.`);
-
-        // --- Return Success Response ---
-        // 使用文件顶部定义的 corsHeaders
-        return new Response(JSON.stringify({ success: true }), {
-            status: 200,
-            headers: corsHeaders
-        });
-
-    } catch (kvError) {
-        console.error(`KV operation failed during reset for code ${loginCode}:`, kvError); // Log KV error
-        // 使用文件顶部定义的 corsHeaders
-        return new Response(JSON.stringify({ success: false, error: '无法重置状态存储' }), {
-            status: 500, // Internal Server Error
-            headers: corsHeaders
-        });
-    }
-}
+// --- End of file (or potentially other helper functions if they exist) ---
