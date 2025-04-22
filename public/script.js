@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const originalInput = messageText; // Keep original message for potential retry later
         messageInput.value = '';
         sendButton.disabled = true;
-        messageInput.style.height = 'auto'; // Reset textarea height
+        messageInput.style.height = 'auto'; // Reset textarea height // {{ 这行代码已经存在，确保它在这里 }}
         messageInput.focus(); // Keep focus on input
 
         // Display a "thinking" indicator for the AI response
@@ -409,8 +409,15 @@ document.addEventListener('DOMContentLoaded', () => {
             handleSendMessage();
         }
     });
-    // Update send button state when input changes
-     messageInput.addEventListener('input', () => {
+    // Update send button state AND adjust height when input changes
+     messageInput.addEventListener('input', () => { // {{ 修改现有的 input 监听器 }}
+         // --- 开始：动态高度调整逻辑 ---
+         messageInput.style.height = 'auto'; // Reset height to recalculate
+         const scrollHeight = messageInput.scrollHeight;
+         // 设置高度，注意：最好在 CSS 中设置 max-height
+         messageInput.style.height = `${scrollHeight}px`;
+         // --- 结束：动态高度调整逻辑 ---
+
          // Only enable send if logged in AND input is not empty
          sendButton.disabled = !isLoggedIn || messageInput.value.trim() === '';
      });
