@@ -1,7 +1,7 @@
 #message-input {
     resize: none; /* 禁止用户手动调整大小 */
     overflow-y: auto; /* 当内容超出最大高度时显示滚动条 */
-    max-height: 150px; /* 设置一个最大高度，例如 150px，你可以根据需要调整 */
+    max-height: 300px; /* {{ 将最大高度提高一倍 }} */
     transition: height 0.2s ease; /* 为高度变化添加 0.2 秒的平滑过渡效果 */
     box-sizing: border-box; /* 确保内边距和边框包含在元素总高度内 */
     /* 你可能还需要根据你的设计调整其他样式，如 padding, border 等 */

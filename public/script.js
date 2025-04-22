@@ -411,7 +411,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     // Update send button state AND adjust height when input changes
      messageInput.addEventListener('input', () => {
-         const maxHeight = 150; // {{ 定义最大高度，与 CSS 中的值保持一致 }}
+         const maxHeight = 300; // {{ 将最大高度提高一倍，与 CSS 保持一致 }}
 
          // --- 开始：修改后的动态高度调整逻辑 ---
          messageInput.style.height = 'auto'; // 重置高度以便获取 scrollHeight
