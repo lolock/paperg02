@@ -410,13 +410,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     // Update send button state AND adjust height when input changes
-     messageInput.addEventListener('input', () => { // {{ 修改现有的 input 监听器 }}
-         // --- 开始：动态高度调整逻辑 ---
-         messageInput.style.height = 'auto'; // Reset height to recalculate
+     messageInput.addEventListener('input', () => {
+         const maxHeight = 150; // {{ 定义最大高度，与 CSS 中的值保持一致 }}
+
+         // --- 开始：修改后的动态高度调整逻辑 ---
+         messageInput.style.height = 'auto'; // 重置高度以便获取 scrollHeight
          const scrollHeight = messageInput.scrollHeight;
-         // 设置高度，注意：最好在 CSS 中设置 max-height
-         messageInput.style.height = `${scrollHeight}px`;
-         // --- 结束：动态高度调整逻辑 ---
+
+         // 如果计算出的高度小于或等于最大高度，则设置它
+         if (scrollHeight <= maxHeight) {
+             messageInput.style.height = `${scrollHeight}px`;
+         } else {
+             // 如果计算出的高度超过最大高度，则将高度设置为最大高度，
+             // 这样 CSS 中的 overflow-y: auto 就会生效显示滚动条
+             messageInput.style.height = `${maxHeight}px`;
+         }
+         // --- 结束：修改后的动态高度调整逻辑 ---
 
          // Only enable send if logged in AND input is not empty
          sendButton.disabled = !isLoggedIn || messageInput.value.trim() === '';
